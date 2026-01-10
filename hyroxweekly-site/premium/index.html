@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Premium - Hyrox Weekly</title>
+<meta name="description" content="Hyrox Weekly Premium - Athlete deep dives and a curated training library. Coming soon.">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; background: #1a1a1a; min-height: 100vh; }
+
+/* Navigation */
+.nav {
+  padding: 16px 0;
+  position: fixed;
+  width: 100%;
+  top: 0;
+  z-index: 1000;
+}
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.nav-brand {
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+  text-decoration: none;
+  letter-spacing: 3px;
+}
+.nav-links {
+  display: flex;
+  gap: 32px;
+  align-items: center;
+}
+.nav-links a {
+  color: rgba(255,255,255,0.7);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+.nav-links a:hover { color: #fff; }
+.nav-links a.active { color: #CC5500; }
+
+/* Hero */
+.premium-hero {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 120px 24px 60px;
+  background: linear-gradient(180deg, #1a1a1a 0%, #2d2d2d 50%, #1a1a1a 100%);
+}
+
+.premium-badge {
+  background: #CC5500;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 16px;
+  border-radius: 20px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 30px;
+}
+
+.premium-hero h1 {
+  color: #fff;
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: 4px;
+  margin-bottom: 16px;
+}
+.premium-hero h1 span {
+  color: #CC5500;
+}
+
+.premium-hero > p {
+  color: rgba(255,255,255,0.6);
+  font-size: 18px;
+  max-width: 600px;
+  margin-bottom: 50px;
+}
+
+/* Features Preview */
+.premium-features {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+  max-width: 800px;
+  margin-bottom: 50px;
+}
+
+.premium-feature {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 32px;
+  text-align: left;
+}
+.premium-feature-icon {
+  font-size: 36px;
+  margin-bottom: 16px;
+}
+.premium-feature h3 {
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.premium-feature p {
+  color: rgba(255,255,255,0.5);
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 0;
+}
+
+/* Waitlist Form */
+.waitlist-container {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 40px 20px;
+  max-width: 600px;
+  width: 100%;
+}
+.waitlist-container h3 {
+  color: #fff;
+  font-size: 22px;
+  margin-bottom: 8px;
+}
+.waitlist-container > p {
+  color: rgba(255,255,255,0.5);
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+.waitlist-note {
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  margin-top: 16px;
+}
+
+/* Footer */
+.footer {
+  padding: 40px 24px;
+  text-align: center;
+}
+.footer p {
+  color: rgba(255,255,255,0.3);
+  font-size: 12px;
+}
+.footer a {
+  color: rgba(255,255,255,0.5);
+  text-decoration: none;
+  margin: 0 12px;
+}
+
+/* Responsive */
+@media (max-width: 700px) {
+  .premium-hero h1 { font-size: 36px; }
+  .premium-features { grid-template-columns: 1fr; }
+  .nav-links { display: none; }
+  .waitlist-container { padding: 24px 15px; margin: 0 10px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <div class="nav-container">
+    <a href="/" class="nav-brand">HYROX WEEKLY</a>
+    <div class="nav-links">
+      <a href="/archive">Archive</a>
+      <a href="/premium" class="active">Premium</a>
+      <a href="/#subscribe">Subscribe</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="premium-hero">
+  <div class="premium-badge">Coming 2026</div>
+  
+  <h1>HYROX WEEKLY<br><span>PREMIUM</span></h1>
+  
+  <p>Take your Hyrox journey to the next level with exclusive athlete content and a curated training library.</p>
+  
+  <div class="premium-features">
+    <div class="premium-feature">
+      <div class="premium-feature-icon">🏆</div>
+      <h3>Athlete Deep Dives</h3>
+      <p>Exclusive interviews and profiles of top Hyrox athletes. Training secrets, race strategies, and the mindset behind the medals.</p>
+    </div>
+    
+    <div class="premium-feature">
+      <div class="premium-feature-icon">💪</div>
+      <h3>Training Library</h3>
+      <p>A searchable database of the best Hyrox training content, organized by station and skill level. Never wonder what to train again.</p>
+    </div>
+  </div>
+  
+  <div class="waitlist-container">
+    <h3>Get Early Access</h3>
+    <p>Subscribe to Hyrox Weekly (free) to be first to know when Premium launches.</p>
+    
+    <!-- Beehiiv Embed - EXACT CODE FROM BEEHIIV -->
+    <script async src="https://subscribe-forms.beehiiv.com/embed.js"></script>
+    <iframe src="https://subscribe-forms.beehiiv.com/ae6c5902-dbf8-4632-83aa-4384fae024a1" class="beehiiv-embed" data-test-id="beehiiv-embed" frameborder="0" scrolling="no" style="width: 100%; max-width: 560px; height: 207px; margin: 0 auto; display: block; border-radius: 8px; background-color: transparent;"></iframe>
+    
+    <p class="waitlist-note">We'll email you when Premium is ready. No spam, ever.</p>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <p>
+    <a href="/">Home</a>
+    <a href="/archive">Archive</a>
+    <a href="mailto:team@hyroxweekly.com">Contact</a>
+  </p>
+  <p style="margin-top: 16px;">© 2025 Hyrox Weekly. Not affiliated with HYROX GmbH.</p>
+</footer>
+
+</body>
+</html>

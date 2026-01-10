@@ -1,0 +1,68 @@
+# Netlify configuration
+
+# Redirects for clean URLs
+[[redirects]]
+  from = "/archive"
+  to = "/archive/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/premium"
+  to = "/premium/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/privacy"
+  to = "/privacy/index.html"
+  status = 200
+
+# Force HTTPS
+[[redirects]]
+  from = "http://hyroxweekly.com/*"
+  to = "https://hyroxweekly.com/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "http://www.hyroxweekly.com/*"
+  to = "https://hyroxweekly.com/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "https://www.hyroxweekly.com/*"
+  to = "https://hyroxweekly.com/:splat"
+  status = 301
+  force = true
+
+
+[[redirects]]
+  from = "/subscribe/*"
+  to = "https://app.beehiiv.com/subscribe/:splat"
+  status = 301
+  force = true
+
+# Custom 404
+[[redirects]]
+  from = "/*"
+  to = "/404.html"
+  status = 404
+
+# Headers for security and caching
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

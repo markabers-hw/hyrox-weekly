@@ -1,0 +1,14 @@
+[theme]
+# Hyrox Weekly - Modern Dark Theme
+primaryColor = "#ff6b35"
+backgroundColor = "#0e1117"
+secondaryBackgroundColor = "#1a1d24"
+textColor = "#fafafa"
+font = "sans serif"
+
+[server]
+headless = true
+runOnSave = true
+
+[browser]
+gatherUsageStats = false
