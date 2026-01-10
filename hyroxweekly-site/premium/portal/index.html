@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Premium Portal - Hyrox Weekly</title>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; background: #1a1a1a; min-height: 100vh; }
+
+/* Navigation */
+.nav {
+  padding: 16px 0;
+  position: fixed;
+  width: 100%;
+  top: 0;
+  z-index: 1000;
+  background: rgba(26,26,26,0.95);
+  backdrop-filter: blur(10px);
+}
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.nav-brand {
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+  text-decoration: none;
+  letter-spacing: 3px;
+}
+.nav-links {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+.nav-links a {
+  color: rgba(255,255,255,0.7);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+.nav-links a:hover { color: #fff; }
+
+.premium-badge-nav {
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 10px;
+  letter-spacing: 1px;
+}
+
+/* Main Content */
+.portal-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 100px 24px 60px;
+}
+
+/* Welcome Section */
+.welcome-section {
+  text-align: center;
+  margin-bottom: 50px;
+}
+
+.welcome-section h1 {
+  color: #fff;
+  font-size: 36px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.member-info {
+  color: rgba(255,255,255,0.5);
+  font-size: 14px;
+}
+.member-info .email {
+  color: #CC5500;
+}
+.member-info .tier {
+  background: rgba(204, 85, 0, 0.2);
+  color: #CC5500;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+.member-info .early-bird {
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-left: 8px;
+}
+
+/* Content Cards */
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+  margin-bottom: 50px;
+}
+
+.content-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+  padding: 32px;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+.content-card:hover {
+  border-color: rgba(204, 85, 0, 0.5);
+  transform: translateY(-4px);
+  background: rgba(255,255,255,0.08);
+}
+
+.card-icon {
+  font-size: 40px;
+  margin-bottom: 16px;
+}
+
+.content-card h3 {
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.content-card p {
+  color: rgba(255,255,255,0.5);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.card-cta {
+  color: #CC5500;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Account Section */
+.account-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 32px;
+}
+
+.account-section h2 {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 24px;
+}
+
+.account-actions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  border: none;
+}
+
+.btn-outline {
+  background: transparent;
+  color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.2);
+}
+.btn-outline:hover {
+  border-color: rgba(255,255,255,0.4);
+  color: #fff;
+}
+
+/* Not logged in state */
+.login-required {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.login-required h2 {
+  color: #fff;
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+
+.login-required p {
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 24px;
+}
+
+.login-required .btn-primary {
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  padding: 14px 32px;
+}
+
+/* Footer */
+.footer {
+  padding: 40px 24px;
+  text-align: center;
+}
+.footer p {
+  color: rgba(255,255,255,0.3);
+  font-size: 12px;
+}
+.footer a {
+  color: rgba(255,255,255,0.5);
+  text-decoration: none;
+  margin: 0 12px;
+}
+
+/* Loading state */
+.loading {
+  text-align: center;
+  padding: 100px 20px;
+  color: rgba(255,255,255,0.5);
+}
+
+@media (max-width: 700px) {
+  .content-grid { grid-template-columns: 1fr; }
+  .nav-links { display: none; }
+  .account-actions { flex-direction: column; }
+  .btn { text-align: center; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <div class="nav-container">
+    <a href="/" class="nav-brand">HYROX WEEKLY</a>
+    <div class="nav-links" id="navLinks">
+      <a href="/archive">Archive</a>
+      <a href="/athletes">Athletes</a>
+      <a href="/performance">Performance</a>
+      <span class="premium-badge-nav">PREMIUM</span>
+    </div>
+  </div>
+</nav>
+
+<!-- Main Content -->
+<main class="portal-page">
+
+  <!-- Loading State -->
+  <div class="loading" id="loadingState">
+    Checking your access...
+  </div>
+
+  <!-- Logged In Content (hidden by default) -->
+  <div id="portalContent" style="display: none;">
+
+    <!-- Welcome -->
+    <div class="welcome-section">
+      <h1>Welcome back!</h1>
+      <p class="member-info">
+        <span class="email" id="memberEmail">member@example.com</span>
+        <span class="tier" id="memberTier">Yearly</span>
+        <span class="early-bird" id="earlyBirdBadge" style="display: none;">Early Bird #<span id="earlyBirdNum"></span></span>
+      </p>
+    </div>
+
+    <!-- Content Grid -->
+    <div class="content-grid">
+      <a href="/athletes" class="content-card">
+        <div class="card-icon">&#127942;</div>
+        <h3>Athlete Editions</h3>
+        <p>In-depth profiles of the world's top Hyrox competitors. Training insights, race strategies, and exclusive content.</p>
+        <div class="card-cta">Browse Athletes &#8594;</div>
+      </a>
+
+      <a href="/performance" class="content-card">
+        <div class="card-icon">&#128200;</div>
+        <h3>Performance Editions</h3>
+        <p>Deep dives into every Hyrox station. Target times, technique tips, and curated training content.</p>
+        <div class="card-cta">View Guides &#8594;</div>
+      </a>
+
+      <a href="/archive" class="content-card">
+        <div class="card-icon">&#128218;</div>
+        <h3>Full Archive</h3>
+        <p>Access every past edition of Hyrox Weekly. Search and browse the complete newsletter history.</p>
+        <div class="card-cta">Browse Archive &#8594;</div>
+      </a>
+
+      <a href="/" class="content-card">
+        <div class="card-icon">&#9889;</div>
+        <h3>Early Access</h3>
+        <p>Get each new edition 24 hours before it goes public. Be the first to see the latest Hyrox content.</p>
+        <div class="card-cta">View Latest &#8594;</div>
+      </a>
+    </div>
+
+    <!-- Account Section -->
+    <div class="account-section">
+      <h2>Account Settings</h2>
+      <div class="account-actions">
+        <button class="btn btn-outline" id="manageBillingBtn">Manage Billing</button>
+        <button class="btn btn-outline" id="logoutBtn">Log Out</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Not Logged In (hidden by default) -->
+  <div class="login-required" id="loginRequired" style="display: none;">
+    <h2>Premium Access Required</h2>
+    <p>Please log in to access your premium content.</p>
+    <a href="/premium" class="btn btn-primary">Log In or Subscribe</a>
+  </div>
+
+</main>
+
+<!-- Footer -->
+<footer class="footer">
+  <p>
+    <a href="/">Home</a>
+    <a href="/archive">Archive</a>
+    <a href="mailto:team@hyroxweekly.com">Contact</a>
+  </p>
+  <p style="margin-top: 16px;">&copy; 2025 Hyrox Weekly. Not affiliated with HYROX GmbH.</p>
+</footer>
+
+<script>
+// Check premium status on page load
+async function checkPremiumStatus() {
+  try {
+    const response = await fetch('/api/check-premium', {
+      credentials: 'include'
+    });
+    const data = await response.json();
+
+    document.getElementById('loadingState').style.display = 'none';
+
+    if (data.isPremium) {
+      showPortal(data);
+    } else {
+      showLoginRequired();
+    }
+  } catch (error) {
+    console.error('Failed to check premium status:', error);
+    showLoginRequired();
+  }
+}
+
+function showPortal(data) {
+  document.getElementById('portalContent').style.display = 'block';
+  document.getElementById('memberEmail').textContent = data.email;
+  document.getElementById('memberTier').textContent = data.tier === 'yearly' ? 'Yearly' : 'Monthly';
+
+  if (data.isEarlyBird && data.earlyBirdNumber) {
+    document.getElementById('earlyBirdBadge').style.display = 'inline';
+    document.getElementById('earlyBirdNum').textContent = data.earlyBirdNumber;
+  }
+}
+
+function showLoginRequired() {
+  document.getElementById('loadingState').style.display = 'none';
+  document.getElementById('loginRequired').style.display = 'block';
+}
+
+// Manage billing button
+document.getElementById('manageBillingBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('manageBillingBtn');
+  btn.textContent = 'Loading...';
+  btn.disabled = true;
+
+  try {
+    const response = await fetch('/api/customer-portal', {
+      method: 'POST',
+      credentials: 'include'
+    });
+    const data = await response.json();
+
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      throw new Error('Failed to create portal session');
+    }
+  } catch (error) {
+    alert('Failed to open billing portal. Please try again.');
+    btn.textContent = 'Manage Billing';
+    btn.disabled = false;
+  }
+});
+
+// Logout button
+document.getElementById('logoutBtn').addEventListener('click', () => {
+  // Clear the session cookie
+  document.cookie = 'hwp_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+  window.location.href = '/premium';
+});
+
+// Check status on load
+checkPremiumStatus();
+</script>
+
+</body>
+</html>

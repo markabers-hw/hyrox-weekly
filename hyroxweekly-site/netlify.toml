@@ -1,5 +1,26 @@
 # Netlify configuration
 
+# Functions configuration
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Build settings
+[build]
+  publish = "."
+
+# API routes (functions)
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Auth verify page
+[[redirects]]
+  from = "/auth/verify"
+  to = "/.netlify/functions/verify-magic-link"
+  status = 200
+
 # Redirects for clean URLs
 [[redirects]]
   from = "/archive"
@@ -9,6 +30,36 @@
 [[redirects]]
   from = "/premium"
   to = "/premium/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/premium/success"
+  to = "/premium/success/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/premium/portal"
+  to = "/premium/portal/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/athletes"
+  to = "/athletes/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/athletes/*"
+  to = "/athletes/:splat/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/performance"
+  to = "/performance/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/performance/*"
+  to = "/performance/:splat/index.html"
   status = 200
 
 [[redirects]]

@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Performance Editions - Hyrox Weekly Premium</title>
+<meta name="description" content="Deep dives into every Hyrox station. Target times, technique tips, and curated training content.">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Barlow', sans-serif; line-height: 1.6; background: #1a1a1a; min-height: 100vh; }
+
+/* Navigation */
+.nav {
+  padding: 16px 0;
+  position: fixed;
+  width: 100%;
+  top: 0;
+  z-index: 1000;
+  background: rgba(26,26,26,0.95);
+  backdrop-filter: blur(10px);
+}
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.nav-brand {
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+  text-decoration: none;
+  letter-spacing: 3px;
+}
+.nav-links {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+.nav-links a {
+  color: rgba(255,255,255,0.7);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+.nav-links a:hover { color: #fff; }
+.nav-links a.active { color: #CC5500; }
+
+.premium-badge-nav {
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 10px;
+  letter-spacing: 1px;
+}
+
+/* Main Content */
+.performance-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 100px 24px 60px;
+}
+
+/* Header */
+.page-header {
+  text-align: center;
+  margin-bottom: 50px;
+}
+
+.page-header h1 {
+  color: #fff;
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  margin-bottom: 12px;
+}
+
+.page-header p {
+  color: rgba(255,255,255,0.5);
+  font-size: 16px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* Topic Sections */
+.topic-section {
+  margin-bottom: 50px;
+}
+
+.section-title {
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Topic Grid */
+.topic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.topic-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 24px;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.topic-card:hover {
+  border-color: rgba(204, 85, 0, 0.5);
+  transform: translateY(-4px);
+  background: rgba(255,255,255,0.08);
+}
+
+.topic-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.topic-name {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.topic-count {
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+}
+
+.topic-status {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 10px;
+  letter-spacing: 0.5px;
+}
+.topic-status.published {
+  background: rgba(0, 200, 100, 0.15);
+  color: #00c864;
+}
+.topic-status.coming-soon {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.5);
+}
+
+/* Premium Gate */
+.premium-gate {
+  text-align: center;
+  padding: 60px 20px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+}
+
+.premium-gate h2 {
+  color: #fff;
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+
+.premium-gate p {
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 24px;
+}
+
+.btn-primary {
+  display: inline-block;
+  padding: 14px 32px;
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  border: none;
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* Blur overlay for non-premium */
+.blurred-content {
+  filter: blur(8px);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Footer */
+.footer {
+  padding: 40px 24px;
+  text-align: center;
+}
+.footer p {
+  color: rgba(255,255,255,0.3);
+  font-size: 12px;
+}
+.footer a {
+  color: rgba(255,255,255,0.5);
+  text-decoration: none;
+  margin: 0 12px;
+}
+
+@media (max-width: 700px) {
+  .page-header h1 { font-size: 28px; }
+  .topic-grid { grid-template-columns: repeat(2, 1fr); }
+  .nav-links { display: none; }
+}
+
+@media (max-width: 480px) {
+  .topic-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <div class="nav-container">
+    <a href="/" class="nav-brand">HYROX WEEKLY</a>
+    <div class="nav-links">
+      <a href="/archive">Archive</a>
+      <a href="/athletes">Athletes</a>
+      <a href="/performance" class="active">Performance</a>
+      <a href="/premium/portal" class="premium-badge-nav">PREMIUM</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Main Content -->
+<main class="performance-page">
+
+  <div class="page-header">
+    <h1>Performance Editions</h1>
+    <p>Deep dives into every Hyrox station. Target times, technique tips, and curated training content from the best coaches.</p>
+  </div>
+
+  <!-- Content -->
+  <div id="performanceContent">
+
+    <!-- 8 Stations -->
+    <div class="topic-section">
+      <div class="section-title">The 8 Stations</div>
+      <div class="topic-grid" id="stationsGrid">
+        <!-- Stations loaded dynamically -->
+      </div>
+    </div>
+
+    <!-- Running -->
+    <div class="topic-section">
+      <div class="section-title">Running</div>
+      <div class="topic-grid" id="runningGrid">
+        <!-- Running topics loaded dynamically -->
+      </div>
+    </div>
+
+    <!-- Other Topics -->
+    <div class="topic-section">
+      <div class="section-title">Training & Preparation</div>
+      <div class="topic-grid" id="otherGrid">
+        <!-- Other topics loaded dynamically -->
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Premium Gate (shown for non-premium users) -->
+  <div class="premium-gate" id="premiumGate" style="display: none;">
+    <h2>Premium Content</h2>
+    <p>Performance Editions are exclusive to Hyrox Weekly Premium members.</p>
+    <a href="/premium" class="btn-primary">Get Premium Access</a>
+  </div>
+
+</main>
+
+<!-- Footer -->
+<footer class="footer">
+  <p>
+    <a href="/">Home</a>
+    <a href="/archive">Archive</a>
+    <a href="mailto:team@hyroxweekly.com">Contact</a>
+  </p>
+  <p style="margin-top: 16px;">&copy; 2025 Hyrox Weekly. Not affiliated with HYROX GmbH.</p>
+</footer>
+
+<script>
+let isPremium = false;
+
+// Performance topics (matches database seeding)
+const topics = {
+  stations: [
+    { slug: 'ski-erg', name: 'Ski Erg', icon: '⛷️', status: 'coming-soon' },
+    { slug: 'sled-push', name: 'Sled Push', icon: '🛷', status: 'coming-soon' },
+    { slug: 'sled-pull', name: 'Sled Pull', icon: '🪢', status: 'coming-soon' },
+    { slug: 'burpee-broad-jump', name: 'Burpee Broad Jump', icon: '🤸', status: 'coming-soon' },
+    { slug: 'rowing', name: 'Rowing', icon: '🚣', status: 'coming-soon' },
+    { slug: 'farmers-carry', name: 'Farmers Carry', icon: '🏋️', status: 'coming-soon' },
+    { slug: 'sandbag-lunges', name: 'Sandbag Lunges', icon: '👟', status: 'coming-soon' },
+    { slug: 'wall-balls', name: 'Wall Balls', icon: '🏐', status: 'coming-soon' },
+  ],
+  running: [
+    { slug: 'pacing', name: 'Pacing Strategy', icon: '⏱️', status: 'coming-soon' },
+    { slug: 'transitions', name: 'Transitions', icon: '🔄', status: 'coming-soon' },
+    { slug: 'endurance', name: 'Running Endurance', icon: '🏃', status: 'coming-soon' },
+  ],
+  other: [
+    { slug: 'programming', name: 'Training Programming', icon: '📋', status: 'coming-soon' },
+    { slug: 'recovery', name: 'Recovery', icon: '🧘', status: 'coming-soon' },
+    { slug: 'nutrition', name: 'Nutrition', icon: '🥗', status: 'coming-soon' },
+    { slug: 'race-day', name: 'Race Day Strategy', icon: '🏁', status: 'coming-soon' },
+  ]
+};
+
+function renderTopicCard(topic) {
+  return `
+    <a href="/performance/${topic.slug}" class="topic-card">
+      <div class="topic-icon">${topic.icon}</div>
+      <div class="topic-name">${topic.name}</div>
+      <span class="topic-status ${topic.status}">${topic.status === 'published' ? 'View Guide' : 'Coming Soon'}</span>
+    </a>
+  `;
+}
+
+function renderTopics() {
+  document.getElementById('stationsGrid').innerHTML = topics.stations.map(renderTopicCard).join('');
+  document.getElementById('runningGrid').innerHTML = topics.running.map(renderTopicCard).join('');
+  document.getElementById('otherGrid').innerHTML = topics.other.map(renderTopicCard).join('');
+}
+
+// Check premium status
+async function checkAccess() {
+  try {
+    const response = await fetch('/api/check-premium', { credentials: 'include' });
+    const data = await response.json();
+    isPremium = data.isPremium;
+
+    if (!isPremium) {
+      document.getElementById('performanceContent').classList.add('blurred-content');
+      document.getElementById('premiumGate').style.display = 'block';
+    }
+  } catch (error) {
+    // Show premium gate on error
+    document.getElementById('performanceContent').classList.add('blurred-content');
+    document.getElementById('premiumGate').style.display = 'block';
+  }
+}
+
+// Initialize
+renderTopics();
+checkAccess();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Athlete Editions - Hyrox Weekly Premium</title>
+<meta name="description" content="In-depth profiles of the world's top Hyrox athletes. Exclusive to Hyrox Weekly Premium.">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Barlow', sans-serif; line-height: 1.6; background: #1a1a1a; min-height: 100vh; }
+
+/* Navigation */
+.nav {
+  padding: 16px 0;
+  position: fixed;
+  width: 100%;
+  top: 0;
+  z-index: 1000;
+  background: rgba(26,26,26,0.95);
+  backdrop-filter: blur(10px);
+}
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.nav-brand {
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+  text-decoration: none;
+  letter-spacing: 3px;
+}
+.nav-links {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+.nav-links a {
+  color: rgba(255,255,255,0.7);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+.nav-links a:hover { color: #fff; }
+.nav-links a.active { color: #CC5500; }
+
+.premium-badge-nav {
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 10px;
+  letter-spacing: 1px;
+}
+
+/* Main Content */
+.athletes-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 100px 24px 60px;
+}
+
+/* Header */
+.page-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.page-header h1 {
+  color: #fff;
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  margin-bottom: 12px;
+}
+
+.page-header p {
+  color: rgba(255,255,255,0.5);
+  font-size: 16px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* Filters */
+.filters {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 40px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.6);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.filter-btn:hover {
+  border-color: rgba(255,255,255,0.3);
+  color: #fff;
+}
+.filter-btn.active {
+  background: #CC5500;
+  border-color: #CC5500;
+  color: #fff;
+}
+
+/* Athlete Sections */
+.athlete-section {
+  margin-bottom: 50px;
+}
+
+.section-title {
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Athlete Grid */
+.athlete-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.athlete-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+.athlete-card:hover {
+  border-color: rgba(204, 85, 0, 0.5);
+  transform: translateY(-4px);
+}
+
+.athlete-image {
+  width: 100%;
+  height: 180px;
+  background: linear-gradient(135deg, #2a2a2a, #1a1a1a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 60px;
+  color: rgba(255,255,255,0.1);
+}
+.athlete-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.athlete-info {
+  padding: 20px;
+}
+
+.athlete-name {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.athlete-meta {
+  color: rgba(255,255,255,0.4);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.athlete-country {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.athlete-handle {
+  color: #CC5500;
+}
+
+.athlete-status {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 10px;
+  letter-spacing: 0.5px;
+}
+.athlete-status.published {
+  background: rgba(0, 200, 100, 0.15);
+  color: #00c864;
+}
+.athlete-status.coming-soon {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.5);
+}
+
+/* Premium Gate */
+.premium-gate {
+  text-align: center;
+  padding: 60px 20px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+}
+
+.premium-gate h2 {
+  color: #fff;
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+
+.premium-gate p {
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 24px;
+}
+
+.btn-primary {
+  display: inline-block;
+  padding: 14px 32px;
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  border: none;
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* Blur overlay for non-premium */
+.blurred-content {
+  filter: blur(8px);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Footer */
+.footer {
+  padding: 40px 24px;
+  text-align: center;
+}
+.footer p {
+  color: rgba(255,255,255,0.3);
+  font-size: 12px;
+}
+.footer a {
+  color: rgba(255,255,255,0.5);
+  text-decoration: none;
+  margin: 0 12px;
+}
+
+@media (max-width: 700px) {
+  .page-header h1 { font-size: 28px; }
+  .athlete-grid { grid-template-columns: 1fr; }
+  .nav-links { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <div class="nav-container">
+    <a href="/" class="nav-brand">HYROX WEEKLY</a>
+    <div class="nav-links">
+      <a href="/archive">Archive</a>
+      <a href="/athletes" class="active">Athletes</a>
+      <a href="/performance">Performance</a>
+      <a href="/premium/portal" class="premium-badge-nav">PREMIUM</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Main Content -->
+<main class="athletes-page">
+
+  <div class="page-header">
+    <h1>Athlete Editions</h1>
+    <p>In-depth profiles of the world's top Hyrox competitors. Training insights, race strategies, and curated content.</p>
+  </div>
+
+  <!-- Filters -->
+  <div class="filters">
+    <button class="filter-btn active" onclick="filterAthletes('all')">All</button>
+    <button class="filter-btn" onclick="filterAthletes('male')">Men</button>
+    <button class="filter-btn" onclick="filterAthletes('female')">Women</button>
+  </div>
+
+  <!-- Content (blurred for non-premium) -->
+  <div id="athleteContent">
+
+    <!-- Elite 15 Men -->
+    <div class="athlete-section" data-gender="male">
+      <div class="section-title">Elite 15 Men</div>
+      <div class="athlete-grid" id="eliteMenGrid">
+        <!-- Athletes loaded dynamically -->
+      </div>
+    </div>
+
+    <!-- Elite 15 Women -->
+    <div class="athlete-section" data-gender="female">
+      <div class="section-title">Elite 15 Women</div>
+      <div class="athlete-grid" id="eliteWomenGrid">
+        <!-- Athletes loaded dynamically -->
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Premium Gate (shown for non-premium users) -->
+  <div class="premium-gate" id="premiumGate" style="display: none;">
+    <h2>Premium Content</h2>
+    <p>Athlete Editions are exclusive to Hyrox Weekly Premium members.</p>
+    <a href="/premium" class="btn-primary">Get Premium Access</a>
+  </div>
+
+</main>
+
+<!-- Footer -->
+<footer class="footer">
+  <p>
+    <a href="/">Home</a>
+    <a href="/archive">Archive</a>
+    <a href="mailto:team@hyroxweekly.com">Contact</a>
+  </p>
+  <p style="margin-top: 16px;">&copy; 2025 Hyrox Weekly. Not affiliated with HYROX GmbH.</p>
+</footer>
+
+<script>
+let isPremium = false;
+
+// Sample athlete data (in production, load from API)
+const athletes = {
+  eliteMen: [
+    { name: 'Hunter McIntyre', country: 'USA', handle: '@hunterthechamp', status: 'coming-soon' },
+    { name: 'Tobias Tondering', country: 'GER', handle: '@tobiashyrox', status: 'coming-soon' },
+    { name: 'Ryan Kent', country: 'USA', handle: '@ryankent', status: 'coming-soon' },
+    { name: 'Lukas Storath', country: 'GER', handle: '@lukasstorath', status: 'coming-soon' },
+  ],
+  eliteWomen: [
+    { name: 'Lauren Weeks', country: 'USA', handle: '@laurenweeks', status: 'coming-soon' },
+    { name: 'Linda Meier', country: 'GER', handle: '@lindameier', status: 'coming-soon' },
+    { name: 'Meg Jacoby', country: 'USA', handle: '@megjacoby', status: 'coming-soon' },
+    { name: 'Helena Engelbrektsson', country: 'SWE', handle: '@helenae', status: 'coming-soon' },
+  ]
+};
+
+function renderAthleteCard(athlete) {
+  return `
+    <a href="/athletes/${athlete.name.toLowerCase().replace(/\s+/g, '-')}" class="athlete-card">
+      <div class="athlete-image">&#129336;</div>
+      <div class="athlete-info">
+        <div class="athlete-name">${athlete.name}</div>
+        <div class="athlete-meta">
+          <span class="athlete-country">${athlete.country}</span>
+          <span class="athlete-handle">${athlete.handle}</span>
+        </div>
+        <span class="athlete-status ${athlete.status}">${athlete.status === 'published' ? 'View Profile' : 'Coming Soon'}</span>
+      </div>
+    </a>
+  `;
+}
+
+function renderAthletes() {
+  document.getElementById('eliteMenGrid').innerHTML = athletes.eliteMen.map(renderAthleteCard).join('');
+  document.getElementById('eliteWomenGrid').innerHTML = athletes.eliteWomen.map(renderAthleteCard).join('');
+}
+
+function filterAthletes(gender) {
+  // Update active button
+  document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+  event.target.classList.add('active');
+
+  // Filter sections
+  document.querySelectorAll('.athlete-section').forEach(section => {
+    const sectionGender = section.dataset.gender;
+    if (gender === 'all' || sectionGender === gender) {
+      section.style.display = 'block';
+    } else {
+      section.style.display = 'none';
+    }
+  });
+}
+
+// Check premium status
+async function checkAccess() {
+  try {
+    const response = await fetch('/api/check-premium', { credentials: 'include' });
+    const data = await response.json();
+    isPremium = data.isPremium;
+
+    if (!isPremium) {
+      document.getElementById('athleteContent').classList.add('blurred-content');
+      document.getElementById('premiumGate').style.display = 'block';
+    }
+  } catch (error) {
+    // Show premium gate on error
+    document.getElementById('athleteContent').classList.add('blurred-content');
+    document.getElementById('premiumGate').style.display = 'block';
+  }
+}
+
+// Initialize
+renderAthletes();
+checkAccess();
+</script>
+
+</body>
+</html>

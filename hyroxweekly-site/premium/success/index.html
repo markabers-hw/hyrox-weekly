@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Welcome to Premium - Hyrox Weekly</title>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; background: #1a1a1a; min-height: 100vh; }
+
+/* Navigation */
+.nav {
+  padding: 16px 0;
+  position: fixed;
+  width: 100%;
+  top: 0;
+  z-index: 1000;
+  background: rgba(26,26,26,0.95);
+  backdrop-filter: blur(10px);
+}
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.nav-brand {
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+  text-decoration: none;
+  letter-spacing: 3px;
+}
+
+/* Success Content */
+.success-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 120px 24px 60px;
+  background: linear-gradient(180deg, #1a1a1a 0%, #2d2d2d 50%, #1a1a1a 100%);
+}
+
+.success-icon {
+  width: 100px;
+  height: 100px;
+  background: linear-gradient(135deg, #00c864, #00a050);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 30px;
+  font-size: 50px;
+  animation: scaleIn 0.5s ease-out;
+}
+
+@keyframes scaleIn {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.success-page h1 {
+  color: #fff;
+  font-size: 42px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  margin-bottom: 16px;
+}
+
+.success-page > p {
+  color: rgba(255,255,255,0.6);
+  font-size: 18px;
+  max-width: 500px;
+  margin-bottom: 40px;
+}
+
+.early-bird-badge {
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 12px 24px;
+  border-radius: 30px;
+  letter-spacing: 1px;
+  margin-bottom: 40px;
+  display: none;
+}
+.early-bird-badge.show {
+  display: inline-block;
+  animation: fadeIn 0.5s ease-out 0.3s both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.next-steps {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 500px;
+  width: 100%;
+  text-align: left;
+}
+
+.next-steps h3 {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.step-item {
+  display: flex;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.step-item:last-child {
+  border-bottom: none;
+}
+
+.step-number {
+  width: 28px;
+  height: 28px;
+  background: #CC5500;
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.step-content h4 {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.step-content p {
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+}
+
+.cta-buttons {
+  display: flex;
+  gap: 16px;
+  margin-top: 30px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.btn {
+  padding: 14px 28px;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: transform 0.2s;
+  letter-spacing: 1px;
+}
+.btn:hover {
+  transform: translateY(-2px);
+}
+.btn-primary {
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  border: none;
+}
+.btn-secondary {
+  background: transparent;
+  color: #fff;
+  border: 2px solid rgba(255,255,255,0.2);
+}
+
+/* Footer */
+.footer {
+  padding: 40px 24px;
+  text-align: center;
+}
+.footer p {
+  color: rgba(255,255,255,0.3);
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .success-page h1 { font-size: 28px; }
+  .cta-buttons { flex-direction: column; }
+  .btn { width: 100%; text-align: center; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <div class="nav-container">
+    <a href="/" class="nav-brand">HYROX WEEKLY</a>
+  </div>
+</nav>
+
+<!-- Success Content -->
+<section class="success-page">
+  <div class="success-icon">&#10003;</div>
+
+  <h1>Welcome to Premium!</h1>
+
+  <p>Your subscription is confirmed. Check your email for a magic link to access your premium content.</p>
+
+  <div class="early-bird-badge" id="earlyBirdBadge">
+    Early Bird #<span id="earlyBirdNumber">1</span> of 100
+  </div>
+
+  <div class="next-steps">
+    <h3>What happens next</h3>
+
+    <div class="step-item">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Check your email</h4>
+        <p>We've sent you a magic link to access premium content. Check your inbox (and spam folder).</p>
+      </div>
+    </div>
+
+    <div class="step-item">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Click the link to log in</h4>
+        <p>The link will sign you in and give you access to all premium features for 30 days.</p>
+      </div>
+    </div>
+
+    <div class="step-item">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Explore premium content</h4>
+        <p>Browse athlete profiles, performance guides, and get early access to each newsletter edition.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="cta-buttons">
+    <a href="/athletes" class="btn btn-primary">Browse Athletes</a>
+    <a href="/performance" class="btn btn-secondary">Performance Guides</a>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <p>&copy; 2025 Hyrox Weekly. Not affiliated with HYROX GmbH.</p>
+</footer>
+
+<script>
+// Check for session_id to verify success
+const urlParams = new URLSearchParams(window.location.search);
+const sessionId = urlParams.get('session_id');
+
+if (sessionId) {
+  // Could verify the session with Stripe here if needed
+  console.log('Checkout session:', sessionId);
+}
+
+// Show early bird badge if applicable (would come from API in production)
+// For now, show it as a demo
+const badge = document.getElementById('earlyBirdBadge');
+const numberEl = document.getElementById('earlyBirdNumber');
+
+// In production, this would come from the webhook data
+// For demo purposes, showing early bird badge
+badge.classList.add('show');
+numberEl.textContent = Math.floor(Math.random() * 50) + 1;
+</script>
+
+</body>
+</html>
