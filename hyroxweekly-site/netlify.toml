@@ -48,8 +48,8 @@
   status = 200
 
 [[redirects]]
-  from = "/athletes/*"
-  to = "/athletes/:splat/index.html"
+  from = "/athletes/:slug"
+  to = "/athletes/profile.html?slug=:slug"
   status = 200
 
 [[redirects]]
@@ -58,8 +58,8 @@
   status = 200
 
 [[redirects]]
-  from = "/performance/*"
-  to = "/performance/:splat/index.html"
+  from = "/performance/:slug"
+  to = "/performance/topic.html?slug=:slug"
   status = 200
 
 [[redirects]]

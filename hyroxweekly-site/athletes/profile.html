@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Athlete Profile - Hyrox Weekly Premium</title>
+<meta name="description" content="In-depth athlete profile. Exclusive to Hyrox Weekly Premium.">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Barlow', sans-serif; line-height: 1.6; background: #1a1a1a; min-height: 100vh; color: #fff; }
+
+/* Navigation */
+.nav {
+  padding: 16px 0;
+  position: fixed;
+  width: 100%;
+  top: 0;
+  z-index: 1000;
+  background: rgba(26,26,26,0.95);
+  backdrop-filter: blur(10px);
+}
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.nav-brand {
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+  text-decoration: none;
+  letter-spacing: 3px;
+}
+.nav-links {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+.nav-links a {
+  color: rgba(255,255,255,0.7);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+.nav-links a:hover { color: #fff; }
+.nav-links a.active { color: #CC5500; }
+.premium-badge-nav {
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 10px;
+  letter-spacing: 1px;
+}
+
+/* Main Content */
+.profile-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 100px 24px 60px;
+}
+
+/* Back Link */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255,255,255,0.5);
+  text-decoration: none;
+  font-size: 14px;
+  margin-bottom: 30px;
+}
+.back-link:hover { color: #fff; }
+
+/* Profile Header */
+.profile-header {
+  display: flex;
+  gap: 32px;
+  margin-bottom: 40px;
+  align-items: flex-start;
+}
+
+.profile-image {
+  width: 180px;
+  height: 180px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #2a2a2a, #1a1a1a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 80px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.profile-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-info h1 {
+  font-size: 36px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.profile-meta {
+  display: flex;
+  gap: 16px;
+  color: rgba(255,255,255,0.5);
+  font-size: 15px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.profile-meta span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.profile-bio {
+  color: rgba(255,255,255,0.7);
+  font-size: 16px;
+  line-height: 1.7;
+  max-width: 500px;
+}
+
+.social-links {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.social-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: #fff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.social-link:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.2);
+}
+
+/* Content Sections */
+.content-section {
+  margin-bottom: 40px;
+}
+
+.section-title {
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Coming Soon */
+.coming-soon-box {
+  background: rgba(255,255,255,0.03);
+  border: 1px dashed rgba(255,255,255,0.15);
+  border-radius: 12px;
+  padding: 40px;
+  text-align: center;
+  color: rgba(255,255,255,0.4);
+}
+
+/* Premium Gate */
+.premium-gate {
+  text-align: center;
+  padding: 60px 20px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  margin-top: 40px;
+}
+.premium-gate h2 {
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+.premium-gate p {
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 24px;
+}
+.btn-primary {
+  display: inline-block;
+  padding: 14px 32px;
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  border: none;
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.blurred-content {
+  filter: blur(8px);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Loading */
+.loading {
+  text-align: center;
+  padding: 60px;
+  color: rgba(255,255,255,0.4);
+}
+
+/* Footer */
+.footer {
+  padding: 40px 24px;
+  text-align: center;
+}
+.footer p { color: rgba(255,255,255,0.3); font-size: 12px; }
+.footer a { color: rgba(255,255,255,0.5); text-decoration: none; margin: 0 12px; }
+
+@media (max-width: 700px) {
+  .profile-header { flex-direction: column; align-items: center; text-align: center; }
+  .profile-info h1 { font-size: 28px; }
+  .profile-meta { justify-content: center; }
+  .profile-bio { max-width: 100%; }
+  .social-links { justify-content: center; }
+  .nav-links { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <div class="nav-container">
+    <a href="/" class="nav-brand">HYROX WEEKLY</a>
+    <div class="nav-links">
+      <a href="/archive">Archive</a>
+      <a href="/athletes" class="active">Athletes</a>
+      <a href="/performance">Performance</a>
+      <a href="/premium/portal" class="premium-badge-nav">PREMIUM</a>
+    </div>
+  </div>
+</nav>
+
+<!-- Main Content -->
+<main class="profile-page">
+  <a href="/athletes" class="back-link">&larr; All Athletes</a>
+
+  <div id="profileContent">
+    <div class="loading">Loading athlete profile...</div>
+  </div>
+
+  <!-- Premium Gate -->
+  <div class="premium-gate" id="premiumGate" style="display: none;">
+    <h2>Premium Content</h2>
+    <p>Athlete profiles are exclusive to Hyrox Weekly Premium members.</p>
+    <a href="/premium" class="btn-primary">Get Premium Access</a>
+  </div>
+</main>
+
+<!-- Footer -->
+<footer class="footer">
+  <p>
+    <a href="/">Home</a>
+    <a href="/archive">Archive</a>
+    <a href="mailto:team@hyroxweekly.com">Contact</a>
+  </p>
+  <p style="margin-top: 16px;">&copy; 2025 Hyrox Weekly. Not affiliated with HYROX GmbH.</p>
+</footer>
+
+<script>
+const SUPABASE_URL = 'https://ksqrakczmecdbzxwsvea.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtzcXJha2N6bWVjZGJ6eHdzdmVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgwMjYxMTMsImV4cCI6MjA4MzYwMjExM30.sotuDt98HLIaDvkINuT-2mC8DPgpDTB6luu_xKCxe64';
+
+let isPremium = false;
+
+// Get slug from URL
+function getSlug() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('slug');
+}
+
+function renderProfile(athlete) {
+  const imageHtml = athlete.profile_image_url
+    ? `<img src="${athlete.profile_image_url}" alt="${athlete.name}">`
+    : '&#129336;';
+
+  document.title = `${athlete.name} - Hyrox Weekly Premium`;
+
+  return `
+    <div class="profile-header">
+      <div class="profile-image">${imageHtml}</div>
+      <div class="profile-info">
+        <h1>${athlete.name}</h1>
+        <div class="profile-meta">
+          <span>${athlete.country}</span>
+          <span>${athlete.gender === 'male' ? 'Men\'s Elite' : 'Women\'s Elite'}</span>
+        </div>
+        ${athlete.bio ? `<p class="profile-bio">${athlete.bio}</p>` : ''}
+        <div class="social-links">
+          ${athlete.instagram_handle ? `<a href="https://instagram.com/${athlete.instagram_handle}" target="_blank" class="social-link">Instagram</a>` : ''}
+          ${athlete.website_url ? `<a href="${athlete.website_url}" target="_blank" class="social-link">Website</a>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div class="content-section">
+      <div class="section-title">Latest Videos</div>
+      <div class="coming-soon-box">
+        <p>Curated video content coming soon</p>
+      </div>
+    </div>
+
+    <div class="content-section">
+      <div class="section-title">Training Insights</div>
+      <div class="coming-soon-box">
+        <p>Training breakdowns and race analysis coming soon</p>
+      </div>
+    </div>
+
+    <div class="content-section">
+      <div class="section-title">Podcasts & Interviews</div>
+      <div class="coming-soon-box">
+        <p>Curated podcast appearances coming soon</p>
+      </div>
+    </div>
+  `;
+}
+
+async function fetchAthlete() {
+  const slug = getSlug();
+  if (!slug) {
+    document.getElementById('profileContent').innerHTML = '<p>Athlete not found</p>';
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/athletes?slug=eq.${slug}&select=*`,
+      { headers: { 'apikey': SUPABASE_ANON_KEY } }
+    );
+    const data = await response.json();
+
+    if (data.length === 0) {
+      document.getElementById('profileContent').innerHTML = '<p>Athlete not found</p>';
+      return;
+    }
+
+    document.getElementById('profileContent').innerHTML = renderProfile(data[0]);
+  } catch (error) {
+    console.error('Failed to fetch athlete:', error);
+    document.getElementById('profileContent').innerHTML = '<p>Error loading profile</p>';
+  }
+}
+
+async function checkAccess() {
+  try {
+    const response = await fetch('/api/check-premium', { credentials: 'include' });
+    const data = await response.json();
+    isPremium = data.isPremium;
+
+    if (!isPremium) {
+      document.getElementById('profileContent').classList.add('blurred-content');
+      document.getElementById('premiumGate').style.display = 'block';
+    }
+  } catch (error) {
+    document.getElementById('profileContent').classList.add('blurred-content');
+    document.getElementById('premiumGate').style.display = 'block';
+  }
+}
+
+// Initialize
+fetchAthlete();
+checkAccess();
+</script>
+
+</body>
+</html>

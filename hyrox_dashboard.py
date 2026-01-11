@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 import os
 import subprocess
 import sys
+import requests
 from datetime import datetime, timedelta, timezone
 from jinja2 import Template
 import pytz
@@ -32,6 +33,10 @@ DB_CONFIG = {
     'password': os.getenv('DB_PASSWORD'),
     'port': os.getenv('DB_PORT', '5432')
 }
+
+# Supabase config for premium features
+SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://ksqrakczmecdbzxwsvea.supabase.co')
+SUPABASE_SERVICE_KEY = os.getenv('SUPABASE_SERVICE_KEY', '')
 
 # Timezone options for settings
 TIMEZONE_OPTIONS = {
@@ -3043,7 +3048,7 @@ def main():
         
         page = st.radio(
             "Navigation",
-            ["🏠 Dashboard", "🔍 Discovery", "✅ Curation", "📰 Generate", "🏃 Athletes", "📊 Analytics", "⚙️ Settings"],
+            ["🏠 Dashboard", "🔍 Discovery", "✅ Curation", "📰 Generate", "🏃 Athletes", "💎 Premium", "📊 Analytics", "⚙️ Settings"],
             label_visibility="collapsed"
         )
         
@@ -4373,7 +4378,314 @@ def main():
 
                 st.markdown("---")
                 st.markdown("**Note:** Athletes who haven't been featured recently are prioritized. Click 'Mark Featured' when you include them in a newsletter.")
-    
+
+    # ========================================================================
+    # PREMIUM PAGE
+    # ========================================================================
+    elif page == "💎 Premium":
+        st.markdown("## 💎 Premium Management")
+        st.markdown("Manage subscribers, athlete editions, and performance topics")
+
+        # Supabase helper functions
+        def supabase_get(table, params=None):
+            """GET request to Supabase REST API"""
+            if not SUPABASE_SERVICE_KEY:
+                return None
+            headers = {
+                'apikey': SUPABASE_SERVICE_KEY,
+                'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}'
+            }
+            url = f"{SUPABASE_URL}/rest/v1/{table}"
+            if params:
+                url += f"?{params}"
+            try:
+                response = requests.get(url, headers=headers)
+                return response.json() if response.status_code == 200 else None
+            except Exception as e:
+                st.error(f"Error fetching from Supabase: {e}")
+                return None
+
+        def supabase_post(table, data):
+            """POST request to Supabase REST API"""
+            if not SUPABASE_SERVICE_KEY:
+                return None
+            headers = {
+                'apikey': SUPABASE_SERVICE_KEY,
+                'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}',
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation'
+            }
+            url = f"{SUPABASE_URL}/rest/v1/{table}"
+            try:
+                response = requests.post(url, headers=headers, json=data)
+                return response.json() if response.status_code in [200, 201] else None
+            except Exception as e:
+                st.error(f"Error posting to Supabase: {e}")
+                return None
+
+        def supabase_patch(table, id_field, id_value, data):
+            """PATCH request to Supabase REST API"""
+            if not SUPABASE_SERVICE_KEY:
+                return None
+            headers = {
+                'apikey': SUPABASE_SERVICE_KEY,
+                'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}',
+                'Content-Type': 'application/json',
+                'Prefer': 'return=representation'
+            }
+            url = f"{SUPABASE_URL}/rest/v1/{table}?{id_field}=eq.{id_value}"
+            try:
+                response = requests.patch(url, headers=headers, json=data)
+                return response.status_code in [200, 204]
+            except Exception as e:
+                st.error(f"Error patching Supabase: {e}")
+                return False
+
+        # Check Supabase connection
+        if not SUPABASE_SERVICE_KEY:
+            st.warning("⚠️ SUPABASE_SERVICE_KEY not configured in .env file. Premium features require Supabase connection.")
+            st.code("""
+# Add to your .env file:
+SUPABASE_URL=https://ksqrakczmecdbzxwsvea.supabase.co
+SUPABASE_SERVICE_KEY=your_service_key_here
+            """)
+        else:
+            # Premium tabs
+            premium_tab1, premium_tab2, premium_tab3 = st.tabs(["📊 Subscribers", "🏃 Athlete Editions", "📈 Performance Topics"])
+
+            # =================== SUBSCRIBERS TAB ===================
+            with premium_tab1:
+                st.markdown("### 📊 Subscriber Overview")
+
+                # Fetch subscribers
+                subscribers = supabase_get('subscribers', 'order=created_at.desc')
+
+                if subscribers:
+                    # Stats
+                    total = len(subscribers)
+                    active = len([s for s in subscribers if s.get('subscription_status') == 'active'])
+                    monthly = len([s for s in subscribers if s.get('subscription_status') == 'active' and s.get('subscription_tier') == 'monthly'])
+                    yearly = len([s for s in subscribers if s.get('subscription_status') == 'active' and s.get('subscription_tier') == 'yearly'])
+                    early_bird = len([s for s in subscribers if s.get('is_early_bird') and s.get('subscription_status') == 'active'])
+
+                    col1, col2, col3, col4, col5 = st.columns(5)
+                    with col1:
+                        st.metric("Total Subscribers", total)
+                    with col2:
+                        st.metric("Active", active, delta=f"{active}/{total}")
+                    with col3:
+                        st.metric("Monthly", monthly)
+                    with col4:
+                        st.metric("Yearly", yearly)
+                    with col5:
+                        st.metric("Early Bird Spots Left", max(0, 100 - early_bird), delta=f"{early_bird}/100 used")
+
+                    st.markdown("---")
+                    st.markdown("### 📋 Subscriber List")
+
+                    # Filter
+                    status_filter = st.selectbox("Filter by Status", ["All", "Active", "Cancelled", "Past Due"])
+
+                    filtered = subscribers
+                    if status_filter == "Active":
+                        filtered = [s for s in subscribers if s.get('subscription_status') == 'active']
+                    elif status_filter == "Cancelled":
+                        filtered = [s for s in subscribers if s.get('subscription_status') == 'cancelled']
+                    elif status_filter == "Past Due":
+                        filtered = [s for s in subscribers if s.get('subscription_status') == 'past_due']
+
+                    # Display table
+                    if filtered:
+                        for sub in filtered:
+                            col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
+                            with col1:
+                                email = sub.get('email', 'N/A')
+                                eb_badge = "🌟" if sub.get('is_early_bird') else ""
+                                st.write(f"{eb_badge} **{email}**")
+                            with col2:
+                                tier = sub.get('subscription_tier', 'N/A').title()
+                                st.write(f"📦 {tier}")
+                            with col3:
+                                status = sub.get('subscription_status', 'N/A')
+                                status_color = "🟢" if status == 'active' else "🔴" if status == 'cancelled' else "🟡"
+                                st.write(f"{status_color} {status.title()}")
+                            with col4:
+                                created = sub.get('created_at', '')[:10] if sub.get('created_at') else 'N/A'
+                                st.write(f"📅 {created}")
+                            st.markdown("---")
+                    else:
+                        st.info("No subscribers match the filter")
+                else:
+                    st.info("No subscribers yet. Once you get your first premium subscriber, they'll appear here!")
+
+                    # Show test mode notice
+                    st.markdown("---")
+                    st.markdown("### 🧪 Test Your Setup")
+                    st.markdown("""
+                    To test the full flow:
+                    1. Go to your [Stripe Dashboard](https://dashboard.stripe.com/test/products)
+                    2. Make sure you're in **Test Mode**
+                    3. Visit your site's `/premium` page
+                    4. Use Stripe test card: `4242 4242 4242 4242`
+                    5. Complete checkout and check back here!
+                    """)
+
+            # =================== ATHLETE EDITIONS TAB ===================
+            with premium_tab2:
+                st.markdown("### 🏃 Athlete Editions")
+                st.markdown("Manage premium athlete profile content")
+
+                # Fetch athletes from Supabase
+                athletes = supabase_get('athletes', 'order=name')
+
+                if athletes:
+                    st.markdown(f"**{len(athletes)} athletes** in database")
+
+                    # Display athletes in a grid
+                    for i in range(0, len(athletes), 3):
+                        cols = st.columns(3)
+                        for j, col in enumerate(cols):
+                            if i + j < len(athletes):
+                                athlete = athletes[i + j]
+                                with col:
+                                    with st.container(border=True):
+                                        name = athlete.get('name', 'Unknown')
+                                        country = athlete.get('country', '')
+                                        gender = athlete.get('gender', '').title()
+                                        instagram = athlete.get('instagram_handle', '')
+                                        bio = athlete.get('bio', '')[:100] + '...' if athlete.get('bio') and len(athlete.get('bio', '')) > 100 else athlete.get('bio', '')
+
+                                        st.markdown(f"**{name}**")
+                                        st.caption(f"{country} | {gender}")
+                                        if instagram:
+                                            st.caption(f"@{instagram}")
+
+                                        # Edit athlete
+                                        with st.expander("Edit"):
+                                            new_bio = st.text_area(f"Bio for {name}", value=athlete.get('bio', ''), key=f"bio_{athlete['id']}", height=100)
+                                            new_instagram = st.text_input(f"Instagram", value=athlete.get('instagram_handle', ''), key=f"ig_{athlete['id']}")
+                                            new_image = st.text_input(f"Image URL", value=athlete.get('profile_image_url', ''), key=f"img_{athlete['id']}")
+
+                                            if st.button("Save", key=f"save_{athlete['id']}"):
+                                                success = supabase_patch('athletes', 'id', athlete['id'], {
+                                                    'bio': new_bio,
+                                                    'instagram_handle': new_instagram,
+                                                    'profile_image_url': new_image
+                                                })
+                                                if success:
+                                                    st.success("Saved!")
+                                                    st.rerun()
+
+                    st.markdown("---")
+                    st.markdown("### ➕ Add New Athlete")
+
+                    with st.form("add_athlete_form"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            new_name = st.text_input("Name *")
+                            new_country = st.text_input("Country")
+                            new_gender = st.selectbox("Gender", ["male", "female"])
+                        with col2:
+                            new_slug = st.text_input("Slug (URL-friendly)", help="e.g., 'hunter-mcintyre'")
+                            new_ig = st.text_input("Instagram Handle")
+                            new_img_url = st.text_input("Profile Image URL")
+
+                        new_bio_text = st.text_area("Bio", height=100)
+
+                        submitted = st.form_submit_button("Add Athlete")
+                        if submitted and new_name:
+                            slug = new_slug or new_name.lower().replace(' ', '-')
+                            result = supabase_post('athletes', {
+                                'name': new_name,
+                                'slug': slug,
+                                'country': new_country,
+                                'gender': new_gender,
+                                'instagram_handle': new_ig,
+                                'profile_image_url': new_img_url,
+                                'bio': new_bio_text
+                            })
+                            if result:
+                                st.success(f"Added {new_name}!")
+                                st.rerun()
+                            else:
+                                st.error("Failed to add athlete. Check if slug is unique.")
+                else:
+                    st.info("No athletes in database. Add some athletes to create Athlete Editions.")
+
+            # =================== PERFORMANCE TOPICS TAB ===================
+            with premium_tab3:
+                st.markdown("### 📈 Performance Topics")
+                st.markdown("Manage performance guide content for each Hyrox station and topic")
+
+                # Fetch performance topics
+                topics = supabase_get('performance_topics', 'order=display_order,category')
+
+                if topics:
+                    # Group by category
+                    categories = {}
+                    for topic in topics:
+                        cat = topic.get('category', 'other')
+                        if cat not in categories:
+                            categories[cat] = []
+                        categories[cat].append(topic)
+
+                    st.markdown(f"**{len(topics)} topics** across {len(categories)} categories")
+
+                    for cat, cat_topics in categories.items():
+                        with st.expander(f"📁 {cat.title()} ({len(cat_topics)} topics)", expanded=True):
+                            for topic in cat_topics:
+                                col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+                                with col1:
+                                    emoji = topic.get('icon_emoji', '📌')
+                                    name = topic.get('name', 'Unknown')
+                                    st.write(f"{emoji} **{name}**")
+                                with col2:
+                                    slug = topic.get('slug', '')
+                                    st.caption(f"`{slug}`")
+                                with col3:
+                                    status = topic.get('status', 'draft')
+                                    status_color = "🟢" if status == 'published' else "🟡"
+                                    st.write(f"{status_color} {status.title()}")
+                                with col4:
+                                    order = topic.get('display_order', 0)
+                                    st.caption(f"#{order}")
+
+                    st.markdown("---")
+
+                st.markdown("### ➕ Add New Topic")
+
+                with st.form("add_topic_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        topic_name = st.text_input("Topic Name *", placeholder="e.g., Ski Erg")
+                        topic_slug = st.text_input("Slug *", placeholder="e.g., ski-erg")
+                        topic_category = st.selectbox("Category", ["stations", "running", "other"])
+                    with col2:
+                        topic_emoji = st.text_input("Icon Emoji", placeholder="🎿")
+                        topic_order = st.number_input("Display Order", min_value=0, value=0)
+                        topic_status = st.selectbox("Status", ["draft", "published"])
+
+                    topic_description = st.text_area("Description", height=80)
+
+                    if st.form_submit_button("Add Topic"):
+                        if topic_name and topic_slug:
+                            result = supabase_post('performance_topics', {
+                                'name': topic_name,
+                                'slug': topic_slug,
+                                'category': topic_category,
+                                'icon_emoji': topic_emoji,
+                                'display_order': topic_order,
+                                'status': topic_status,
+                                'description': topic_description
+                            })
+                            if result:
+                                st.success(f"Added topic: {topic_name}")
+                                st.rerun()
+                            else:
+                                st.error("Failed to add topic. Check if slug is unique.")
+                        else:
+                            st.warning("Name and slug are required")
+
     # ========================================================================
     # ANALYTICS PAGE
     # ========================================================================

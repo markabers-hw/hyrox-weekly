@@ -307,39 +307,20 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; background: #1a1a1a;
 </footer>
 
 <script>
-let isPremium = false;
+const SUPABASE_URL = 'https://ksqrakczmecdbzxwsvea.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtzcXJha2N6bWVjZGJ6eHdzdmVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgwMjYxMTMsImV4cCI6MjA4MzYwMjExM30.sotuDt98HLIaDvkINuT-2mC8DPgpDTB6luu_xKCxe64';
 
-// Performance topics (matches database seeding)
-const topics = {
-  stations: [
-    { slug: 'ski-erg', name: 'Ski Erg', icon: '⛷️', status: 'coming-soon' },
-    { slug: 'sled-push', name: 'Sled Push', icon: '🛷', status: 'coming-soon' },
-    { slug: 'sled-pull', name: 'Sled Pull', icon: '🪢', status: 'coming-soon' },
-    { slug: 'burpee-broad-jump', name: 'Burpee Broad Jump', icon: '🤸', status: 'coming-soon' },
-    { slug: 'rowing', name: 'Rowing', icon: '🚣', status: 'coming-soon' },
-    { slug: 'farmers-carry', name: 'Farmers Carry', icon: '🏋️', status: 'coming-soon' },
-    { slug: 'sandbag-lunges', name: 'Sandbag Lunges', icon: '👟', status: 'coming-soon' },
-    { slug: 'wall-balls', name: 'Wall Balls', icon: '🏐', status: 'coming-soon' },
-  ],
-  running: [
-    { slug: 'pacing', name: 'Pacing Strategy', icon: '⏱️', status: 'coming-soon' },
-    { slug: 'transitions', name: 'Transitions', icon: '🔄', status: 'coming-soon' },
-    { slug: 'endurance', name: 'Running Endurance', icon: '🏃', status: 'coming-soon' },
-  ],
-  other: [
-    { slug: 'programming', name: 'Training Programming', icon: '📋', status: 'coming-soon' },
-    { slug: 'recovery', name: 'Recovery', icon: '🧘', status: 'coming-soon' },
-    { slug: 'nutrition', name: 'Nutrition', icon: '🥗', status: 'coming-soon' },
-    { slug: 'race-day', name: 'Race Day Strategy', icon: '🏁', status: 'coming-soon' },
-  ]
-};
+let isPremium = false;
+let topics = { stations: [], running: [], other: [] };
 
 function renderTopicCard(topic) {
   return `
     <a href="/performance/${topic.slug}" class="topic-card">
-      <div class="topic-icon">${topic.icon}</div>
+      <div class="topic-icon">${topic.icon_emoji || '📌'}</div>
       <div class="topic-name">${topic.name}</div>
-      <span class="topic-status ${topic.status}">${topic.status === 'published' ? 'View Guide' : 'Coming Soon'}</span>
+      <span class="topic-status ${topic.status === 'published' ? 'published' : 'coming-soon'}">
+        ${topic.status === 'published' ? 'View Guide' : 'Coming Soon'}
+      </span>
     </a>
   `;
 }
@@ -348,6 +329,25 @@ function renderTopics() {
   document.getElementById('stationsGrid').innerHTML = topics.stations.map(renderTopicCard).join('');
   document.getElementById('runningGrid').innerHTML = topics.running.map(renderTopicCard).join('');
   document.getElementById('otherGrid').innerHTML = topics.other.map(renderTopicCard).join('');
+}
+
+// Fetch topics from Supabase
+async function fetchTopics() {
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/performance_topics?select=*&order=display_order`,
+      { headers: { 'apikey': SUPABASE_ANON_KEY } }
+    );
+    const data = await response.json();
+
+    topics.stations = data.filter(t => t.category === 'stations');
+    topics.running = data.filter(t => t.category === 'running');
+    topics.other = data.filter(t => t.category === 'other');
+
+    renderTopics();
+  } catch (error) {
+    console.error('Failed to fetch topics:', error);
+  }
 }
 
 // Check premium status
@@ -362,14 +362,13 @@ async function checkAccess() {
       document.getElementById('premiumGate').style.display = 'block';
     }
   } catch (error) {
-    // Show premium gate on error
     document.getElementById('performanceContent').classList.add('blurred-content');
     document.getElementById('premiumGate').style.display = 'block';
   }
 }
 
 // Initialize
-renderTopics();
+fetchTopics();
 checkAccess();
 </script>
 

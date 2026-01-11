@@ -356,43 +356,35 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; background: #1a1a1a;
 </footer>
 
 <script>
-let isPremium = false;
+const SUPABASE_URL = 'https://ksqrakczmecdbzxwsvea.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtzcXJha2N6bWVjZGJ6eHdzdmVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgwMjYxMTMsImV4cCI6MjA4MzYwMjExM30.sotuDt98HLIaDvkINuT-2mC8DPgpDTB6luu_xKCxe64';
 
-// Sample athlete data (in production, load from API)
-const athletes = {
-  eliteMen: [
-    { name: 'Hunter McIntyre', country: 'USA', handle: '@hunterthechamp', status: 'coming-soon' },
-    { name: 'Tobias Tondering', country: 'GER', handle: '@tobiashyrox', status: 'coming-soon' },
-    { name: 'Ryan Kent', country: 'USA', handle: '@ryankent', status: 'coming-soon' },
-    { name: 'Lukas Storath', country: 'GER', handle: '@lukasstorath', status: 'coming-soon' },
-  ],
-  eliteWomen: [
-    { name: 'Lauren Weeks', country: 'USA', handle: '@laurenweeks', status: 'coming-soon' },
-    { name: 'Linda Meier', country: 'GER', handle: '@lindameier', status: 'coming-soon' },
-    { name: 'Meg Jacoby', country: 'USA', handle: '@megjacoby', status: 'coming-soon' },
-    { name: 'Helena Engelbrektsson', country: 'SWE', handle: '@helenae', status: 'coming-soon' },
-  ]
-};
+let isPremium = false;
+let athletes = { male: [], female: [] };
 
 function renderAthleteCard(athlete) {
+  const imageHtml = athlete.profile_image_url
+    ? `<img src="${athlete.profile_image_url}" alt="${athlete.name}">`
+    : '&#129336;';
+
   return `
-    <a href="/athletes/${athlete.name.toLowerCase().replace(/\s+/g, '-')}" class="athlete-card">
-      <div class="athlete-image">&#129336;</div>
+    <a href="/athletes/${athlete.slug}" class="athlete-card">
+      <div class="athlete-image">${imageHtml}</div>
       <div class="athlete-info">
         <div class="athlete-name">${athlete.name}</div>
         <div class="athlete-meta">
           <span class="athlete-country">${athlete.country}</span>
-          <span class="athlete-handle">${athlete.handle}</span>
+          ${athlete.instagram_handle ? `<span class="athlete-handle">@${athlete.instagram_handle}</span>` : ''}
         </div>
-        <span class="athlete-status ${athlete.status}">${athlete.status === 'published' ? 'View Profile' : 'Coming Soon'}</span>
+        <span class="athlete-status coming-soon">View Profile</span>
       </div>
     </a>
   `;
 }
 
 function renderAthletes() {
-  document.getElementById('eliteMenGrid').innerHTML = athletes.eliteMen.map(renderAthleteCard).join('');
-  document.getElementById('eliteWomenGrid').innerHTML = athletes.eliteWomen.map(renderAthleteCard).join('');
+  document.getElementById('eliteMenGrid').innerHTML = athletes.male.map(renderAthleteCard).join('');
+  document.getElementById('eliteWomenGrid').innerHTML = athletes.female.map(renderAthleteCard).join('');
 }
 
 function filterAthletes(gender) {
@@ -411,6 +403,24 @@ function filterAthletes(gender) {
   });
 }
 
+// Fetch athletes from Supabase
+async function fetchAthletes() {
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/athletes?select=id,name,slug,country,gender,profile_image_url,instagram_handle&order=name`,
+      { headers: { 'apikey': SUPABASE_ANON_KEY } }
+    );
+    const data = await response.json();
+
+    athletes.male = data.filter(a => a.gender === 'male');
+    athletes.female = data.filter(a => a.gender === 'female');
+
+    renderAthletes();
+  } catch (error) {
+    console.error('Failed to fetch athletes:', error);
+  }
+}
+
 // Check premium status
 async function checkAccess() {
   try {
@@ -423,14 +433,13 @@ async function checkAccess() {
       document.getElementById('premiumGate').style.display = 'block';
     }
   } catch (error) {
-    // Show premium gate on error
     document.getElementById('athleteContent').classList.add('blurred-content');
     document.getElementById('premiumGate').style.display = 'block';
   }
 }
 
 // Initialize
-renderAthletes();
+fetchAthletes();
 checkAccess();
 </script>
 
