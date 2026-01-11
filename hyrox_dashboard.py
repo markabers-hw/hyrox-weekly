@@ -9,9 +9,6 @@ Complete workflow management:
 """
 
 import streamlit as st
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from psycopg2 import pool as psycopg2_pool
 from dotenv import load_dotenv
 import os
 import subprocess
@@ -20,23 +17,105 @@ import requests
 from datetime import datetime, timedelta, timezone
 from jinja2 import Template
 import pytz
+from urllib.parse import quote
 
 load_dotenv()
 
 # Anthropic API for AI blurb generation
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST'),
-    'database': os.getenv('DB_NAME'),
-    'user': os.getenv('DB_USER'),
-    'password': os.getenv('DB_PASSWORD'),
-    'port': os.getenv('DB_PORT', '5432')
-}
-
-# Supabase config for premium features
+# Supabase config (primary database)
 SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://ksqrakczmecdbzxwsvea.supabase.co')
 SUPABASE_SERVICE_KEY = os.getenv('SUPABASE_SERVICE_KEY', '')
+SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtzcXJha2N6bWVjZGJ6eHdzdmVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgwMjYxMTMsImV4cCI6MjA4MzYwMjExM30.sotuDt98HLIaDvkINuT-2mC8DPgpDTB6luu_xKCxe64'
+
+def get_supabase_headers(use_service_key=True):
+    """Get headers for Supabase API requests"""
+    key = SUPABASE_SERVICE_KEY if use_service_key and SUPABASE_SERVICE_KEY else SUPABASE_ANON_KEY
+    return {
+        'apikey': key,
+        'Authorization': f'Bearer {key}',
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+    }
+
+def supabase_get(table, params=None, single=False):
+    """GET request to Supabase REST API"""
+    headers = get_supabase_headers()
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    if params:
+        url += f"?{params}"
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            return data[0] if single and data else data
+        return [] if not single else None
+    except Exception as e:
+        print(f"Supabase GET error: {e}")
+        return [] if not single else None
+
+def supabase_post(table, data):
+    """POST request to Supabase REST API"""
+    headers = get_supabase_headers()
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code in [200, 201]:
+            result = response.json()
+            return result[0] if isinstance(result, list) and result else result
+        print(f"Supabase POST error: {response.status_code} - {response.text}")
+        return None
+    except Exception as e:
+        print(f"Supabase POST error: {e}")
+        return None
+
+def supabase_patch(table, params, data):
+    """PATCH request to Supabase REST API"""
+    headers = get_supabase_headers()
+    url = f"{SUPABASE_URL}/rest/v1/{table}?{params}"
+    try:
+        response = requests.patch(url, headers=headers, json=data)
+        if response.status_code in [200, 204]:
+            if response.text:
+                result = response.json()
+                return result[0] if isinstance(result, list) and result else result
+            return True
+        print(f"Supabase PATCH error: {response.status_code} - {response.text}")
+        return None
+    except Exception as e:
+        print(f"Supabase PATCH error: {e}")
+        return None
+
+def supabase_delete(table, params):
+    """DELETE request to Supabase REST API"""
+    headers = get_supabase_headers()
+    url = f"{SUPABASE_URL}/rest/v1/{table}?{params}"
+    try:
+        response = requests.delete(url, headers=headers)
+        return response.status_code in [200, 204]
+    except Exception as e:
+        print(f"Supabase DELETE error: {e}")
+        return False
+
+def supabase_upsert(table, data, on_conflict=None):
+    """UPSERT request to Supabase REST API"""
+    headers = get_supabase_headers()
+    if on_conflict:
+        headers['Prefer'] = f'resolution=merge-duplicates,return=representation'
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    if on_conflict:
+        url += f"?on_conflict={on_conflict}"
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code in [200, 201]:
+            result = response.json()
+            return result[0] if isinstance(result, list) and result else result
+        print(f"Supabase UPSERT error: {response.status_code} - {response.text}")
+        return None
+    except Exception as e:
+        print(f"Supabase UPSERT error: {e}")
+        return None
 
 # Timezone options for settings
 TIMEZONE_OPTIONS = {
@@ -128,389 +207,132 @@ PLATFORM_CONFIG = {
 ITEMS_PER_PAGE = 15
 
 # ============================================================================
-# DATABASE FUNCTIONS
+# DATABASE FUNCTIONS (using Supabase REST API)
 # ============================================================================
 
-# Database connection pool (cached as resource)
-@st.cache_resource
-def get_db_pool():
-    """Get or create the database connection pool"""
-    return psycopg2_pool.ThreadedConnectionPool(
-        minconn=2,
-        maxconn=10,
-        **DB_CONFIG
-    )
+# No init functions needed - tables already exist in Supabase
 
-
-def get_db_connection():
-    """Get a connection from the pool"""
-    try:
-        return get_db_pool().getconn()
-    except:
-        # Fallback to direct connection if pool fails
-        return psycopg2.connect(**DB_CONFIG)
-
-
-def return_db_connection(conn):
-    """Return a connection to the pool"""
-    try:
-        get_db_pool().putconn(conn)
-    except:
-        try:
-            conn.close()
-        except:
-            pass
-
-
-def init_settings_table():
-    """Create newsletter_settings table if it doesn't exist"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS newsletter_settings (
-                key VARCHAR(100) PRIMARY KEY,
-                value TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error creating settings table: {e}")
-        return False
-
-
-def init_priority_sources_table():
-    """Create priority_sources table if it doesn't exist"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS priority_sources (
-                id SERIAL PRIMARY KEY,
-                platform VARCHAR(50) NOT NULL,
-                source_type VARCHAR(50) NOT NULL,
-                source_id VARCHAR(255),
-                source_name VARCHAR(255) NOT NULL,
-                source_url VARCHAR(500),
-                notes TEXT,
-                is_active BOOLEAN DEFAULT true,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(platform, source_name)
-            )
-        """)
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error creating priority_sources table: {e}")
-        return False
-
-
-@st.cache_data(ttl=120)  # Cache for 2 minutes
+@st.cache_data(ttl=120)
 def get_priority_sources(platform=None):
     """Get all priority sources, optionally filtered by platform"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        if platform:
-            cursor.execute("""
-                SELECT * FROM priority_sources 
-                WHERE is_active = true AND platform = %s
-                ORDER BY source_name
-            """, (platform,))
-        else:
-            cursor.execute("""
-                SELECT * FROM priority_sources 
-                WHERE is_active = true
-                ORDER BY platform, source_name
-            """)
-        
-        sources = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return sources
-    except Exception as e:
-        print(f"Error getting priority sources: {e}")
-        return []
+    params = "is_active=eq.true&order=platform,source_name"
+    if platform:
+        params = f"is_active=eq.true&platform=eq.{platform}&order=source_name"
+    return supabase_get('priority_sources', params) or []
 
 
 def add_priority_source(platform, source_type, source_name, source_id=None, source_url=None, notes=None):
     """Add a new priority source"""
-    try:
-        init_priority_sources_table()
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO priority_sources (platform, source_type, source_name, source_id, source_url, notes)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (platform, source_name) DO UPDATE SET
-                source_type = EXCLUDED.source_type,
-                source_id = EXCLUDED.source_id,
-                source_url = EXCLUDED.source_url,
-                notes = EXCLUDED.notes,
-                is_active = true,
-                updated_at = CURRENT_TIMESTAMP
-            RETURNING id
-        """, (platform, source_type, source_name, source_id, source_url, notes))
-        conn.commit()
-        result = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        # Clear the cache so the list refreshes
+    data = {
+        'platform': platform,
+        'source_type': source_type,
+        'source_name': source_name,
+        'source_id': source_id,
+        'source_url': source_url,
+        'notes': notes,
+        'is_active': True
+    }
+    result = supabase_upsert('priority_sources', data, 'platform,source_name')
+    if result:
         get_priority_sources.clear()
-        return result[0] if result else None
-    except Exception as e:
-        print(f"Error adding priority source: {e}")
-        return None
+    return result.get('id') if result else None
 
 
 def remove_priority_source(source_id):
     """Remove (deactivate) a priority source"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE priority_sources SET is_active = false, updated_at = CURRENT_TIMESTAMP
-            WHERE id = %s
-        """, (source_id,))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error removing priority source: {e}")
-        return False
+    result = supabase_patch('priority_sources', f'id=eq.{source_id}', {'is_active': False})
+    return result is not None
 
 
 def delete_priority_source(source_id):
     """Permanently delete a priority source"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM priority_sources WHERE id = %s", (source_id,))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        # Clear the cache so the list refreshes
+    result = supabase_delete('priority_sources', f'id=eq.{source_id}')
+    if result:
         get_priority_sources.clear()
-        return True
-    except Exception as e:
-        print(f"Error deleting priority source: {e}")
-        return False
-
-
-def init_athletes_table():
-    """Create athletes table if it doesn't exist"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS athletes (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                instagram_handle VARCHAR(100),
-                instagram_url VARCHAR(500),
-                profile_image_url VARCHAR(500),
-                bio TEXT,
-                category VARCHAR(50) DEFAULT 'elite',
-                country VARCHAR(100),
-                achievements TEXT,
-                website VARCHAR(500),
-                is_active BOOLEAN DEFAULT true,
-                featured_count INTEGER DEFAULT 0,
-                last_featured_date DATE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        # Add website column if it doesn't exist (for existing tables)
-        cursor.execute("""
-            DO $$ 
-            BEGIN 
-                IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                               WHERE table_name='athletes' AND column_name='website') THEN
-                    ALTER TABLE athletes ADD COLUMN website VARCHAR(500);
-                END IF;
-            END $$;
-        """)
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error creating athletes table: {e}")
-        return False
+    return result
 
 
 def get_athletes(category_filter='all', active_only=True):
     """Get athletes from database"""
-    try:
-        init_athletes_table()
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        query = "SELECT * FROM athletes WHERE 1=1"
-        params = []
-        
-        if active_only:
-            query += " AND is_active = true"
-        
-        if category_filter != 'all':
-            query += " AND category = %s"
-            params.append(category_filter)
-        
-        query += " ORDER BY name ASC"
-        
-        cursor.execute(query, params)
-        athletes = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return athletes
-    except Exception as e:
-        print(f"Error getting athletes: {e}")
-        return []
+    params = "order=name"
+    filters = []
+    if active_only:
+        filters.append("is_active=eq.true")
+    if category_filter != 'all':
+        filters.append(f"category=eq.{category_filter}")
+    if filters:
+        params = "&".join(filters) + "&" + params
+    return supabase_get('athletes', params) or []
 
 
 def get_athlete_by_id(athlete_id):
     """Get a single athlete by ID"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT * FROM athletes WHERE id = %s", (athlete_id,))
-        athlete = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return athlete
-    except Exception as e:
-        print(f"Error getting athlete: {e}")
-        return None
+    return supabase_get('athletes', f'id=eq.{athlete_id}', single=True)
 
 
 def add_athlete(name, instagram_handle, instagram_url=None, bio=None, category='elite', country=None, achievements=None, profile_image_url=None, website=None):
     """Add a new athlete to database"""
-    try:
-        init_athletes_table()
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Generate Instagram URL if not provided
-        if not instagram_url and instagram_handle:
-            handle = instagram_handle.replace('@', '')
-            instagram_url = f"https://instagram.com/{handle}"
-        
-        cursor.execute("""
-            INSERT INTO athletes (name, instagram_handle, instagram_url, bio, category, country, achievements, profile_image_url, website)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-        """, (name, instagram_handle, instagram_url, bio, category, country, achievements, profile_image_url, website))
-        
-        athlete_id = cursor.fetchone()[0]
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return athlete_id
-    except Exception as e:
-        print(f"Error adding athlete: {e}")
-        return None
+    if not instagram_url and instagram_handle:
+        handle = instagram_handle.replace('@', '')
+        instagram_url = f"https://instagram.com/{handle}"
+
+    data = {
+        'name': name,
+        'instagram_handle': instagram_handle,
+        'instagram_url': instagram_url,
+        'bio': bio,
+        'category': category,
+        'country': country,
+        'achievements': achievements,
+        'profile_image_url': profile_image_url,
+        'website': website
+    }
+    result = supabase_post('athletes', data)
+    return result.get('id') if result else None
 
 
 def update_athlete(athlete_id, **kwargs):
     """Update an athlete's information"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Build dynamic UPDATE query
-        set_parts = []
-        values = []
-        allowed_fields = ['name', 'instagram_handle', 'instagram_url', 'bio', 'category', 'country', 'achievements', 'profile_image_url', 'is_active', 'website']
-        for key, value in kwargs.items():
-            if key in allowed_fields:
-                set_parts.append(f"{key} = %s")
-                values.append(value)
-        
-        if not set_parts:
-            return False
-        
-        set_parts.append("updated_at = CURRENT_TIMESTAMP")
-        values.append(athlete_id)
-        
-        query = f"UPDATE athletes SET {', '.join(set_parts)} WHERE id = %s"
-        cursor.execute(query, values)
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error updating athlete: {e}")
+    allowed_fields = ['name', 'instagram_handle', 'instagram_url', 'bio', 'category', 'country', 'achievements', 'profile_image_url', 'is_active', 'website']
+    data = {k: v for k, v in kwargs.items() if k in allowed_fields}
+    if not data:
         return False
+    data['updated_at'] = datetime.now(timezone.utc).isoformat()
+    return supabase_patch('athletes', f'id=eq.{athlete_id}', data) is not None
 
 
 def delete_athlete(athlete_id):
     """Delete an athlete from database"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM athletes WHERE id = %s", (athlete_id,))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error deleting athlete: {e}")
-        return False
+    return supabase_delete('athletes', f'id=eq.{athlete_id}')
 
 
 def mark_athlete_featured(athlete_id):
     """Mark an athlete as featured (increment count and set date)"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE athletes 
-            SET featured_count = featured_count + 1, 
-                last_featured_date = CURRENT_DATE,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = %s
-        """, (athlete_id,))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error marking athlete featured: {e}")
+    # Get current featured_count first
+    athlete = get_athlete_by_id(athlete_id)
+    if not athlete:
         return False
+    new_count = (athlete.get('featured_count') or 0) + 1
+    data = {
+        'featured_count': new_count,
+        'last_featured_date': datetime.now(timezone.utc).strftime('%Y-%m-%d'),
+        'updated_at': datetime.now(timezone.utc).isoformat()
+    }
+    return supabase_patch('athletes', f'id=eq.{athlete_id}', data) is not None
 
 
 def get_athletes_for_spotlight(count=4):
     """Get athletes for newsletter spotlight, prioritizing those not recently featured"""
-    try:
-        init_athletes_table()
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("""
-            SELECT * FROM athletes 
-            WHERE is_active = true
-            ORDER BY 
-                last_featured_date ASC NULLS FIRST,
-                featured_count ASC,
-                RANDOM()
-            LIMIT %s
-        """, (count,))
-        athletes = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return athletes
-    except Exception as e:
-        print(f"Error getting spotlight athletes: {e}")
-        return []
+    # Get all active athletes and sort client-side (Supabase REST doesn't support NULLS FIRST easily)
+    athletes = supabase_get('athletes', 'is_active=eq.true') or []
+    # Sort by last_featured_date (None first), then by featured_count
+    import random
+    athletes.sort(key=lambda a: (
+        a.get('last_featured_date') or '0000-00-00',
+        a.get('featured_count') or 0,
+        random.random()
+    ))
+    return athletes[:count]
 
 
 def seed_initial_athletes():
@@ -582,171 +404,31 @@ def seed_initial_athletes():
     return count
 
 
-def init_discovery_runs_table():
-    """Create discovery_runs table if it doesn't exist"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Check if table exists
-        cursor.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = 'discovery_runs'
-            )
-        """)
-        table_exists = cursor.fetchone()[0]
-        
-        if not table_exists:
-            # Create new table
-            cursor.execute("""
-                CREATE TABLE discovery_runs (
-                    id SERIAL PRIMARY KEY,
-                    platform VARCHAR(50) NOT NULL,
-                    week_start_date DATE NOT NULL,
-                    week_end_date DATE NOT NULL,
-                    run_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    items_found INTEGER DEFAULT 0,
-                    items_saved INTEGER DEFAULT 0,
-                    status VARCHAR(20) DEFAULT 'completed',
-                    UNIQUE(platform, week_start_date, week_end_date)
-                )
-            """)
-            conn.commit()
-        
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error creating discovery_runs table: {e}")
-        return False
-
-
-def get_discovery_table_columns():
-    """Get column names from discovery_runs table"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT column_name FROM information_schema.columns 
-            WHERE table_name = 'discovery_runs'
-        """)
-        cols = [row[0] for row in cursor.fetchall()]
-        cursor.close()
-        conn.close()
-        return cols
-    except:
-        return []
-
-
 def record_discovery_run(platform, week_start, week_end, items_found=0, items_saved=0, status='completed'):
     """Record or update a discovery run"""
-    try:
-        init_discovery_runs_table()
-        
-        existing_cols = get_discovery_table_columns()
-        
-        if not existing_cols:
-            print("Error recording discovery run: Could not get table columns")
-            return False
-        
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Determine column names based on what exists
-        if 'week_start_date' in existing_cols:
-            week_start_col = 'week_start_date'
-            week_end_col = 'week_end_date'
-        else:
-            week_start_col = 'week_start'
-            week_end_col = 'week_end'
-        
-        run_time_col = 'run_date' if 'run_date' in existing_cols else 'run_at'
-        
-        # Check if items_found/items_saved columns exist
-        has_items_found = 'items_found' in existing_cols
-        has_items_saved = 'items_saved' in existing_cols
-        
-        if has_items_found and has_items_saved:
-            cursor.execute(f"""
-                INSERT INTO discovery_runs (platform, {week_start_col}, {week_end_col}, {run_time_col}, items_found, items_saved, status)
-                VALUES (%s, %s, %s, CURRENT_TIMESTAMP, %s, %s, %s)
-                ON CONFLICT (platform, {week_start_col}, {week_end_col})
-                DO UPDATE SET {run_time_col} = CURRENT_TIMESTAMP, items_found = %s, items_saved = %s, status = %s
-            """, (platform, week_start, week_end, items_found, items_saved, status, items_found, items_saved, status))
-        else:
-            cursor.execute(f"""
-                INSERT INTO discovery_runs (platform, {week_start_col}, {week_end_col}, {run_time_col}, status)
-                VALUES (%s, %s, %s, CURRENT_TIMESTAMP, %s)
-                ON CONFLICT (platform, {week_start_col}, {week_end_col})
-                DO UPDATE SET {run_time_col} = CURRENT_TIMESTAMP, status = %s
-            """, (platform, week_start, week_end, status, status))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error recording discovery run: {e}")
-        return False
+    data = {
+        'platform': platform,
+        'run_date': datetime.now(timezone.utc).isoformat(),
+        'items_discovered': items_found,
+        'items_new': items_saved,
+        'status': status,
+        'date_range_start': str(week_start),
+        'date_range_end': str(week_end)
+    }
+    return supabase_post('discovery_runs', data) is not None
 
 
 def get_discovery_runs(week_start, week_end):
     """Get discovery runs for a specific week"""
-    try:
-        init_discovery_runs_table()
-        
-        existing_cols = get_discovery_table_columns()
-        
-        if not existing_cols:
-            return {}
-        
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Determine column names based on what exists
-        if 'week_start_date' in existing_cols:
-            week_start_col = 'week_start_date'
-            week_end_col = 'week_end_date'
-        else:
-            week_start_col = 'week_start'
-            week_end_col = 'week_end'
-        
-        run_time_col = 'run_date' if 'run_date' in existing_cols else 'run_at'
-        
-        # Build SELECT with available columns
-        select_cols = ['platform', f'{run_time_col} as run_at']
-        if 'items_found' in existing_cols:
-            select_cols.append('items_found')
-        if 'items_saved' in existing_cols:
-            select_cols.append('items_saved')
-        if 'status' in existing_cols:
-            select_cols.append('status')
-        
-        cursor.execute(f"""
-            SELECT {', '.join(select_cols)}
-            FROM discovery_runs
-            WHERE {week_start_col} = %s AND {week_end_col} = %s
-            ORDER BY platform
-        """, (week_start, week_end))
-        runs = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        
-        # Convert to dict and add defaults for missing columns
-        result = {}
-        for run in runs:
-            run_dict = dict(run)
-            if 'items_found' not in run_dict:
-                run_dict['items_found'] = 0
-            if 'items_saved' not in run_dict:
-                run_dict['items_saved'] = 0
-            result[run_dict['platform']] = run_dict
-        
-        return result
-    except Exception as e:
-        print(f"Error getting discovery runs: {e}")
-        return {}
+    runs = supabase_get('discovery_runs',
+        f'date_range_start=eq.{week_start}&date_range_end=eq.{week_end}&order=platform') or []
+    result = {}
+    for run in runs:
+        run['items_found'] = run.get('items_discovered', 0)
+        run['items_saved'] = run.get('items_new', 0)
+        run['run_at'] = run.get('run_date')
+        result[run['platform']] = run
+    return result
 
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
@@ -768,10 +450,9 @@ def get_newsletter_settings():
         'footer_website': 'https://hyroxweekly.com',
         'footer_contact_email': 'team@hyroxweekly.com',
         'youtube_min_duration': '60',
-        'youtube_region': '',  # Empty = global/no region bias
-        'podcast_country': '',  # Empty = global/no country filter
+        'youtube_region': '',
+        'podcast_country': '',
         'display_timezone': 'US/Pacific',
-        # Section titles
         'section_title_race_recap': 'Race Recaps',
         'section_title_training': 'Training & Workouts',
         'section_title_nutrition': 'Nutrition & Recovery',
@@ -783,131 +464,53 @@ def get_newsletter_settings():
         'section_title_reddit': 'Community Discussions',
         'section_title_athletes': '🏃 Athletes to Follow',
     }
-    
-    try:
-        init_settings_table()
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT key, value FROM newsletter_settings")
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        
-        # Merge database values with defaults
-        for row in rows:
-            defaults[row['key']] = row['value']
-        
-        return defaults
-    except Exception as e:
-        print(f"Error loading settings: {e}")
-        return defaults
+
+    rows = supabase_get('newsletter_settings') or []
+    for row in rows:
+        defaults[row['key']] = row['value']
+    return defaults
 
 
 def save_newsletter_setting(key, value):
     """Save a single newsletter setting to database"""
-    try:
-        init_settings_table()
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO newsletter_settings (key, value, updated_at)
-            VALUES (%s, %s, CURRENT_TIMESTAMP)
-            ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = CURRENT_TIMESTAMP
-        """, (key, value, value))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error saving setting: {e}")
-        return False
+    data = {'key': key, 'value': value, 'updated_at': datetime.now(timezone.utc).isoformat()}
+    return supabase_upsert('newsletter_settings', data, 'key') is not None
 
 
 def save_all_newsletter_settings(config):
     """Save all newsletter settings to database"""
-    try:
-        init_settings_table()
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        for key, value in config.items():
-            cursor.execute("""
-                INSERT INTO newsletter_settings (key, value, updated_at)
-                VALUES (%s, %s, CURRENT_TIMESTAMP)
-                ON CONFLICT (key) DO UPDATE SET value = %s, updated_at = CURRENT_TIMESTAMP
-            """, (key, value, value))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Error saving settings: {e}")
-        return False
+    for key, value in config.items():
+        save_newsletter_setting(key, value)
+    return True
 
 
-@st.cache_data(ttl=60)  # Cache for 1 minute
+@st.cache_data(ttl=60)
 def get_stats():
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("""
-            SELECT platform, status, COUNT(*) as count 
-            FROM content_items 
-            GROUP BY platform, status
-        """)
-        stats = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return stats
-    except:
-        return []
+    """Get content counts by platform and status"""
+    content = supabase_get('content_items', 'select=platform,status') or []
+    # Count by platform and status
+    counts = {}
+    for item in content:
+        key = (item.get('platform', 'unknown'), item.get('status', 'unknown'))
+        counts[key] = counts.get(key, 0) + 1
+    return [{'platform': k[0], 'status': k[1], 'count': v} for k, v in counts.items()]
 
 
-@st.cache_data(ttl=60)  # Cache for 1 minute
+@st.cache_data(ttl=60)
 def get_content_counts_by_week(week_start=None, week_end=None):
     """Get content counts grouped by platform and status for a specific week"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        query = """
-            SELECT platform, status, COUNT(*) as count 
-            FROM content_items 
-            WHERE 1=1
-        """
-        params = []
-        
-        if week_start and week_end:
-            query += " AND published_date >= %s AND published_date < %s"
-            params.append(week_start)
-            params.append(week_end + timedelta(days=1))
-        
-        query += " GROUP BY platform, status ORDER BY platform, status"
-        
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        
-        # Organize into nested dict: {platform: {status: count}}
-        counts = {}
-        for row in rows:
-            platform = row['platform']
-            status = row['status']
-            count = row['count']
-            
-            if platform not in counts:
-                counts[platform] = {'discovered': 0, 'selected': 0, 'rejected': 0, 'published': 0, 'total': 0}
-            
-            counts[platform][status] = count
-            counts[platform]['total'] += count
-        
-        return counts
-    except Exception as e:
-        print(f"Error getting content counts: {e}")
-        return {}
+    params = 'select=platform,status'
+    if week_start and week_end:
+        params += f'&discovered_date=gte.{week_start}&discovered_date=lte.{week_end}'
+    content = supabase_get('content_items', params) or []
+    counts = {}
+    for item in content:
+        key = (item.get('platform', 'unknown'), item.get('status', 'unknown'))
+        counts[key] = counts.get(key, 0) + 1
+    return [{'platform': k[0], 'status': k[1], 'count': v} for k, v in counts.items()]
 
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=300)
 def get_content_cached(platform_filter='all', status_filter='discovered', week_start=None, week_end=None):
     """Cached version of get_content for read-only operations"""
     return _get_content_impl(platform_filter, status_filter, week_start, week_end)
@@ -920,50 +523,36 @@ def get_content(platform_filter='all', status_filter='discovered', week_start=No
 
 def _get_content_impl(platform_filter='all', status_filter='discovered', week_start=None, week_end=None):
     """Internal implementation of get_content"""
-    conn = get_db_connection()
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    
-    query = """
-        SELECT ci.id, ci.title, ci.url, ci.platform, ci.thumbnail_url, ci.description,
-               ci.view_count, ci.like_count, ci.comment_count, ci.duration_seconds,
-               ci.published_date, ci.engagement_score, ci.status, ci.category, ci.editorial_note,
-               ci.custom_description, ci.display_order, ci.ai_description, ci.use_ai_description,
-               c.name as creator_name, c.follower_count as creator_followers, c.platform_id as creator_platform_id
-        FROM content_items ci
-        LEFT JOIN creators c ON ci.creator_id = c.id
-        WHERE 1=1
-    """
-    params = []
-    
+    # Build filters
+    filters = []
     if platform_filter != 'all':
-        query += " AND ci.platform = %s"
-        params.append(platform_filter)
-    
+        filters.append(f'platform=eq.{platform_filter}')
     if status_filter != 'all':
-        query += " AND ci.status = %s"
-        params.append(status_filter)
-    
+        filters.append(f'status=eq.{status_filter}')
     if week_start and week_end:
-        query += " AND ci.published_date >= %s AND ci.published_date < %s"
-        params.append(week_start)
-        # Add one day to week_end to include the full end day
-        params.append(week_end + timedelta(days=1))
-    
-    # Sort by display_order first, then by platform-appropriate metrics
-    query += """ ORDER BY 
-        COALESCE(ci.display_order, 999) ASC,
-        CASE 
-            WHEN ci.platform = 'youtube' THEN ci.view_count 
-            WHEN ci.platform = 'podcast' THEN ci.view_count
-            ELSE 0 
-        END DESC NULLS LAST,
-        ci.engagement_score DESC NULLS LAST, 
-        ci.published_date DESC"""
-    
-    cursor.execute(query, params)
-    content = cursor.fetchall()
-    cursor.close()
-    conn.close()
+        filters.append(f'published_date=gte.{week_start}')
+        end_date = week_end + timedelta(days=1)
+        filters.append(f'published_date=lt.{end_date}')
+
+    params = '&'.join(filters) if filters else ''
+    params += ('&' if params else '') + 'order=display_order.asc.nullslast,view_count.desc.nullslast,engagement_score.desc.nullslast,published_date.desc'
+
+    content = supabase_get('content_items', params) or []
+
+    # Fetch creators for content that has creator_id
+    creator_ids = list(set(c.get('creator_id') for c in content if c.get('creator_id')))
+    creators_map = {}
+    if creator_ids:
+        creators = supabase_get('creators', f'id=in.({",".join(map(str, creator_ids))})') or []
+        creators_map = {c['id']: c for c in creators}
+
+    # Add creator info to content
+    for item in content:
+        creator = creators_map.get(item.get('creator_id'), {})
+        item['creator_name'] = creator.get('name')
+        item['creator_followers'] = creator.get('follower_count')
+        item['creator_platform_id'] = creator.get('platform_id')
+
     return content
 
 
@@ -975,99 +564,61 @@ def clear_content_caches():
 
 
 def clear_content_for_week(platforms, week_start, week_end):
-    """Delete content items for specified platforms within a date range.
-    
-    Args:
-        platforms: List of platforms to clear (e.g., ['youtube', 'podcast']) or ['all']
-        week_start: Start date
-        week_end: End date
-        
-    Returns:
-        dict with counts of deleted items per platform
-    """
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        results = {}
-        
-        if 'all' in platforms:
-            platforms = ['youtube', 'podcast', 'article', 'reddit', 'instagram']
-        
-        for platform in platforms:
-            cursor.execute("""
-                DELETE FROM content_items 
-                WHERE platform = %s 
-                AND published_date >= %s 
-                AND published_date < %s
-                RETURNING id
-            """, (platform, week_start, week_end + timedelta(days=1)))
-            
-            deleted = cursor.fetchall()
-            results[platform] = len(deleted)
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        clear_content_caches()
-        
-        return results
-    except Exception as e:
-        print(f"Error clearing content: {e}")
-        return {}
+    """Delete content items for specified platforms within a date range."""
+    results = {}
+    if 'all' in platforms:
+        platforms = ['youtube', 'podcast', 'article', 'reddit', 'instagram']
+
+    for platform in platforms:
+        # Get items to count them first
+        end_date = week_end + timedelta(days=1)
+        items = supabase_get('content_items',
+            f'platform=eq.{platform}&published_date=gte.{week_start}&published_date=lt.{end_date}&select=id') or []
+        # Delete them
+        for item in items:
+            supabase_delete('content_items', f'id=eq.{item["id"]}')
+        results[platform] = len(items)
+
+    clear_content_caches()
+    return results
 
 
 def update_content_status(content_id, status):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE content_items SET status = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (status, content_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    """Update content status"""
+    data = {'status': status, 'updated_at': datetime.now(timezone.utc).isoformat()}
+    result = supabase_patch('content_items', f'id=eq.{content_id}', data)
     clear_content_caches()
+    return result
 
 
 def update_content_category(content_id, category):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE content_items SET category = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (category, content_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    """Update content category"""
+    data = {'category': category, 'updated_at': datetime.now(timezone.utc).isoformat()}
+    result = supabase_patch('content_items', f'id=eq.{content_id}', data)
     clear_content_caches()
+    return result
 
 
 def update_content_custom_description(content_id, custom_description):
     """Update the custom/override description for a content item"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE content_items SET custom_description = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (custom_description, content_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    data = {'custom_description': custom_description, 'updated_at': datetime.now(timezone.utc).isoformat()}
+    result = supabase_patch('content_items', f'id=eq.{content_id}', data)
     clear_content_caches()
+    return result
 
 
 def update_content_display_order(content_id, display_order):
     """Update the display order for a content item"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE content_items SET display_order = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (display_order, content_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    data = {'display_order': display_order, 'updated_at': datetime.now(timezone.utc).isoformat()}
+    result = supabase_patch('content_items', f'id=eq.{content_id}', data)
     clear_content_caches()
+    return result
 
 
 def update_content_editorial_note(content_id, editorial_note):
     """Update the editorial_note field (used for podcast Spotify/Apple links)"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE content_items SET editorial_note = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (editorial_note, content_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    data = {'editorial_note': editorial_note, 'updated_at': datetime.now(timezone.utc).isoformat()}
+    return supabase_patch('content_items', f'id=eq.{content_id}', data)
 
 
 def update_podcast_links(content_id, spotify_url, apple_url):
@@ -1077,49 +628,8 @@ def update_podcast_links(content_id, spotify_url, apple_url):
 
 
 def ensure_content_columns():
-    """Ensure custom_description, ai_description, and display_order columns exist in content_items table"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Check and add custom_description column
-    cursor.execute("""
-        SELECT column_name FROM information_schema.columns 
-        WHERE table_name = 'content_items' AND column_name = 'custom_description'
-    """)
-    if not cursor.fetchone():
-        cursor.execute("ALTER TABLE content_items ADD COLUMN custom_description TEXT")
-        print("Added custom_description column to content_items")
-    
-    # Check and add display_order column
-    cursor.execute("""
-        SELECT column_name FROM information_schema.columns 
-        WHERE table_name = 'content_items' AND column_name = 'display_order'
-    """)
-    if not cursor.fetchone():
-        cursor.execute("ALTER TABLE content_items ADD COLUMN display_order INTEGER DEFAULT 999")
-        print("Added display_order column to content_items")
-    
-    # Check and add ai_description column
-    cursor.execute("""
-        SELECT column_name FROM information_schema.columns 
-        WHERE table_name = 'content_items' AND column_name = 'ai_description'
-    """)
-    if not cursor.fetchone():
-        cursor.execute("ALTER TABLE content_items ADD COLUMN ai_description TEXT")
-        print("Added ai_description column to content_items")
-    
-    # Check and add use_ai_description column (boolean to track which description to use)
-    cursor.execute("""
-        SELECT column_name FROM information_schema.columns 
-        WHERE table_name = 'content_items' AND column_name = 'use_ai_description'
-    """)
-    if not cursor.fetchone():
-        cursor.execute("ALTER TABLE content_items ADD COLUMN use_ai_description BOOLEAN DEFAULT FALSE")
-        print("Added use_ai_description column to content_items")
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
+    """No-op - columns already exist in Supabase schema"""
+    pass
 
 
 # ============================================================================
@@ -1196,23 +706,16 @@ Just return the blurb text, nothing else."""
 
 def update_content_ai_description(content_id, ai_description):
     """Update the AI-generated description for a content item"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE content_items SET ai_description = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (ai_description, content_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    data = {'ai_description': ai_description, 'updated_at': datetime.now(timezone.utc).isoformat()}
+    return supabase_patch('content_items', f'id=eq.{content_id}', data)
 
 
 def update_content_use_ai_description(content_id, use_ai):
     """Update whether to use AI description for a content item"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE content_items SET use_ai_description = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (use_ai, content_id))
-    conn.commit()
-    cursor.close()
-    conn.close()
+    data = {'use_ai_description': use_ai, 'updated_at': datetime.now(timezone.utc).isoformat()}
+    result = supabase_patch('content_items', f'id=eq.{content_id}', data)
     clear_content_caches()
+    return result
 
 
 def generate_blurbs_for_selected(week_start=None, week_end=None):
@@ -1270,54 +773,37 @@ def regenerate_blurbs(week_start=None, week_end=None, platform_filter='all'):
 
 
 def get_editions():
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("""
-            SELECT * FROM weekly_editions 
-            ORDER BY edition_number DESC 
-            LIMIT 10
-        """)
-        editions = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return editions
-    except:
-        return []
+    """Get recent editions"""
+    return supabase_get('weekly_editions', 'order=edition_number.desc&limit=10') or []
 
 
 def get_next_edition_number():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COALESCE(MAX(edition_number), 0) + 1 FROM weekly_editions")
-    num = cursor.fetchone()[0]
-    cursor.close()
-    conn.close()
-    return num
+    """Get the next edition number"""
+    editions = supabase_get('weekly_editions', 'order=edition_number.desc&limit=1')
+    if editions and len(editions) > 0:
+        return (editions[0].get('edition_number') or 0) + 1
+    return 1
 
 
 def create_edition_record(edition_number, content_ids):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
+    """Create a new edition record and mark content as published"""
     week_start = datetime.now().date() - timedelta(days=datetime.now().weekday())
     week_end = week_start + timedelta(days=6)
-    
-    cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'weekly_editions'")
-    cols = [r[0] for r in cursor.fetchall()]
-    
-    ins_cols, ins_vals = ['edition_number', 'publish_date'], [edition_number, datetime.now()]
-    if 'week_start_date' in cols: ins_cols.append('week_start_date'); ins_vals.append(week_start)
-    if 'week_end_date' in cols: ins_cols.append('week_end_date'); ins_vals.append(week_end)
-    if 'status' in cols: ins_cols.append('status'); ins_vals.append('published')
-    
-    cursor.execute(f"INSERT INTO weekly_editions ({','.join(ins_cols)}) VALUES ({','.join(['%s']*len(ins_vals))}) RETURNING id", ins_vals)
-    edition_id = cursor.fetchone()[0]
-    
-    cursor.execute("UPDATE content_items SET status = 'published' WHERE id = ANY(%s)", (content_ids,))
-    conn.commit()
-    cursor.close()
-    conn.close()
+
+    data = {
+        'edition_number': edition_number,
+        'publish_date': datetime.now(timezone.utc).isoformat(),
+        'week_start_date': str(week_start),
+        'week_end_date': str(week_end),
+        'status': 'published'
+    }
+    result = supabase_post('weekly_editions', data)
+    edition_id = result.get('id') if result else None
+
+    # Mark content as published
+    for content_id in content_ids:
+        supabase_patch('content_items', f'id=eq.{content_id}', {'status': 'published'})
+
     return edition_id
 
 
@@ -3917,29 +3403,25 @@ def main():
                     st.error("URL and Title are required")
                 else:
                     try:
-                        conn = get_db_connection()
-                        cursor = conn.cursor(cursor_factory=RealDictCursor)
-                        
                         # Get or create creator
                         creator_name = manual_creator or "Unknown"
-                        cursor.execute(
-                            "SELECT id FROM creators WHERE name = %s AND platform = %s",
-                            (creator_name, manual_platform)
-                        )
-                        result = cursor.fetchone()
-                        
-                        if result:
-                            creator_id = result['id']
+                        existing_creator = supabase_get('creators',
+                            f'name=eq.{quote(creator_name)}&platform=eq.{manual_platform}', single=True)
+
+                        if existing_creator:
+                            creator_id = existing_creator['id']
                         else:
-                            cursor.execute(
-                                "INSERT INTO creators (name, platform, platform_id) VALUES (%s, %s, %s) RETURNING id",
-                                (creator_name, manual_platform, creator_name)
-                            )
-                            creator_id = cursor.fetchone()['id']
-                        
+                            new_creator = supabase_post('creators', {
+                                'name': creator_name,
+                                'platform': manual_platform,
+                                'platform_id': creator_name
+                            })
+                            creator_id = new_creator['id'] if new_creator else None
+
                         # Check if URL already exists
-                        cursor.execute("SELECT id FROM content_items WHERE url = %s", (manual_url,))
-                        if cursor.fetchone():
+                        existing_content = supabase_get('content_items',
+                            f'url=eq.{quote(manual_url)}', single=True)
+                        if existing_content:
                             st.warning("This URL already exists in the database")
                         else:
                             # Build editorial note for podcasts (Spotify/Apple links)
@@ -3952,43 +3434,36 @@ def main():
                                     links.append(f"Apple: {manual_apple}")
                                 if links:
                                     editorial_note = " | ".join(links)
-                            
+
                             # Calculate duration in seconds
                             duration_seconds = manual_duration * 60 if manual_duration else None
-                            
-                            # Insert content with published_date
-                            cursor.execute("""
-                                INSERT INTO content_items 
-                                (title, url, platform, creator_id, status, thumbnail_url, description, 
-                                 like_count, comment_count, view_count, published_date, category, 
-                                 duration_seconds, editorial_note)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                RETURNING id
-                            """, (
-                                manual_title,
-                                manual_url,
-                                manual_platform,
-                                creator_id,
-                                manual_status,
-                                manual_thumbnail or None,
-                                manual_description or None,
-                                manual_likes,
-                                manual_comments,
-                                manual_views,
-                                manual_date,
-                                manual_category,
-                                duration_seconds,
-                                editorial_note
-                            ))
-                            
-                            conn.commit()
-                            clear_content_caches()
-                            st.success(f"✅ Added: {manual_title[:50]}...")
-                            st.rerun()
-                        
-                        cursor.close()
-                        conn.close()
-                        
+
+                            # Insert content
+                            content_data = {
+                                'title': manual_title,
+                                'url': manual_url,
+                                'platform': manual_platform,
+                                'creator_id': creator_id,
+                                'status': manual_status,
+                                'thumbnail_url': manual_thumbnail or None,
+                                'description': manual_description or None,
+                                'like_count': manual_likes,
+                                'comment_count': manual_comments,
+                                'view_count': manual_views,
+                                'published_date': manual_date.isoformat() if manual_date else None,
+                                'category': manual_category,
+                                'duration_seconds': duration_seconds,
+                                'editorial_note': editorial_note
+                            }
+                            result = supabase_post('content_items', content_data)
+
+                            if result:
+                                clear_content_caches()
+                                st.success(f"✅ Added: {manual_title[:50]}...")
+                                st.rerun()
+                            else:
+                                st.error("Failed to add content")
+
                     except Exception as e:
                         st.error(f"Error adding content: {e}")
     
@@ -4386,61 +3861,6 @@ def main():
         st.markdown("## 💎 Premium Management")
         st.markdown("Manage subscribers, athlete editions, and performance topics")
 
-        # Supabase helper functions
-        def supabase_get(table, params=None):
-            """GET request to Supabase REST API"""
-            if not SUPABASE_SERVICE_KEY:
-                return None
-            headers = {
-                'apikey': SUPABASE_SERVICE_KEY,
-                'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}'
-            }
-            url = f"{SUPABASE_URL}/rest/v1/{table}"
-            if params:
-                url += f"?{params}"
-            try:
-                response = requests.get(url, headers=headers)
-                return response.json() if response.status_code == 200 else None
-            except Exception as e:
-                st.error(f"Error fetching from Supabase: {e}")
-                return None
-
-        def supabase_post(table, data):
-            """POST request to Supabase REST API"""
-            if not SUPABASE_SERVICE_KEY:
-                return None
-            headers = {
-                'apikey': SUPABASE_SERVICE_KEY,
-                'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}',
-                'Content-Type': 'application/json',
-                'Prefer': 'return=representation'
-            }
-            url = f"{SUPABASE_URL}/rest/v1/{table}"
-            try:
-                response = requests.post(url, headers=headers, json=data)
-                return response.json() if response.status_code in [200, 201] else None
-            except Exception as e:
-                st.error(f"Error posting to Supabase: {e}")
-                return None
-
-        def supabase_patch(table, id_field, id_value, data):
-            """PATCH request to Supabase REST API"""
-            if not SUPABASE_SERVICE_KEY:
-                return None
-            headers = {
-                'apikey': SUPABASE_SERVICE_KEY,
-                'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}',
-                'Content-Type': 'application/json',
-                'Prefer': 'return=representation'
-            }
-            url = f"{SUPABASE_URL}/rest/v1/{table}?{id_field}=eq.{id_value}"
-            try:
-                response = requests.patch(url, headers=headers, json=data)
-                return response.status_code in [200, 204]
-            except Exception as e:
-                st.error(f"Error patching Supabase: {e}")
-                return False
-
         # Check Supabase connection
         if not SUPABASE_SERVICE_KEY:
             st.warning("⚠️ SUPABASE_SERVICE_KEY not configured in .env file. Premium features require Supabase connection.")
@@ -4451,7 +3871,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
             """)
         else:
             # Premium tabs
-            premium_tab1, premium_tab2, premium_tab3 = st.tabs(["📊 Subscribers", "🏃 Athlete Editions", "📈 Performance Topics"])
+            premium_tab1, premium_tab2, premium_tab3, premium_tab4 = st.tabs(["📊 Subscribers", "🏃 Athlete Editions", "📈 Performance Topics", "📦 Content Library"])
 
             # =================== SUBSCRIBERS TAB ===================
             with premium_tab1:
@@ -4541,40 +3961,133 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                 if athletes:
                     st.markdown(f"**{len(athletes)} athletes** in database")
 
-                    # Display athletes in a grid
-                    for i in range(0, len(athletes), 3):
-                        cols = st.columns(3)
-                        for j, col in enumerate(cols):
-                            if i + j < len(athletes):
-                                athlete = athletes[i + j]
-                                with col:
-                                    with st.container(border=True):
-                                        name = athlete.get('name', 'Unknown')
-                                        country = athlete.get('country', '')
-                                        gender = athlete.get('gender', '').title()
-                                        instagram = athlete.get('instagram_handle', '')
-                                        bio = athlete.get('bio', '')[:100] + '...' if athlete.get('bio') and len(athlete.get('bio', '')) > 100 else athlete.get('bio', '')
+                    # Athlete selector for detailed view
+                    athlete_names = ["Select an athlete..."] + [f"{a['name']} ({a.get('country', 'N/A')})" for a in athletes]
+                    selected_idx = st.selectbox("Select Athlete to Manage", range(len(athlete_names)),
+                                               format_func=lambda i: athlete_names[i], key="athlete_selector")
 
-                                        st.markdown(f"**{name}**")
-                                        st.caption(f"{country} | {gender}")
-                                        if instagram:
-                                            st.caption(f"@{instagram}")
+                    if selected_idx > 0:
+                        athlete = athletes[selected_idx - 1]
+                        athlete_id = athlete['id']
 
-                                        # Edit athlete
-                                        with st.expander("Edit"):
-                                            new_bio = st.text_area(f"Bio for {name}", value=athlete.get('bio', ''), key=f"bio_{athlete['id']}", height=100)
-                                            new_instagram = st.text_input(f"Instagram", value=athlete.get('instagram_handle', ''), key=f"ig_{athlete['id']}")
-                                            new_image = st.text_input(f"Image URL", value=athlete.get('profile_image_url', ''), key=f"img_{athlete['id']}")
+                        st.markdown("---")
+                        col1, col2 = st.columns([1, 2])
 
-                                            if st.button("Save", key=f"save_{athlete['id']}"):
-                                                success = supabase_patch('athletes', 'id', athlete['id'], {
-                                                    'bio': new_bio,
-                                                    'instagram_handle': new_instagram,
-                                                    'profile_image_url': new_image
-                                                })
-                                                if success:
-                                                    st.success("Saved!")
-                                                    st.rerun()
+                        with col1:
+                            # Athlete info card
+                            with st.container(border=True):
+                                if athlete.get('profile_image_url'):
+                                    st.image(athlete['profile_image_url'], width=150)
+                                st.markdown(f"### {athlete['name']}")
+                                st.caption(f"{athlete.get('country', '')} | {athlete.get('gender', '').title()}")
+                                if athlete.get('instagram_handle'):
+                                    st.markdown(f"[@{athlete['instagram_handle']}](https://instagram.com/{athlete['instagram_handle']})")
+
+                        with col2:
+                            # Edit athlete info
+                            with st.expander("✏️ Edit Athlete Info", expanded=False):
+                                new_bio = st.text_area("Bio", value=athlete.get('bio', ''), key=f"edit_bio_{athlete_id}", height=100)
+                                new_instagram = st.text_input("Instagram", value=athlete.get('instagram_handle', ''), key=f"edit_ig_{athlete_id}")
+                                new_image = st.text_input("Image URL", value=athlete.get('profile_image_url', ''), key=f"edit_img_{athlete_id}")
+                                new_website = st.text_input("Website", value=athlete.get('website_url', '') or '', key=f"edit_web_{athlete_id}")
+
+                                if st.button("💾 Save Changes", key=f"save_athlete_{athlete_id}"):
+                                    success = supabase_patch('athletes', f'id=eq.{athlete_id}', {
+                                        'bio': new_bio,
+                                        'instagram_handle': new_instagram,
+                                        'profile_image_url': new_image,
+                                        'website_url': new_website
+                                    })
+                                    if success:
+                                        st.success("Saved!")
+                                        st.rerun()
+
+                        # Content Linking Section
+                        st.markdown("---")
+                        st.markdown("### 🔗 Linked Content")
+
+                        # Fetch linked content for this athlete
+                        linked_content = supabase_get('athlete_content',
+                            f'athlete_id=eq.{athlete_id}&select=id,display_order,content_type,content_id,content_items(id,title,platform,url,thumbnail_url)&order=display_order') or []
+
+                        if linked_content:
+                            st.markdown(f"**{len(linked_content)} items** linked to this athlete")
+
+                            for idx, link in enumerate(linked_content):
+                                content = link.get('content_items', {})
+                                if content:
+                                    col1, col2, col3, col4 = st.columns([4, 2, 1, 1])
+                                    with col1:
+                                        platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
+                                        st.write(f"{platform_emoji} **{content.get('title', 'Untitled')[:50]}**")
+                                    with col2:
+                                        st.caption(content.get('platform', '').title())
+                                    with col3:
+                                        new_order = st.number_input("Order", value=link.get('display_order', idx), key=f"order_{link['id']}", min_value=0, label_visibility="collapsed")
+                                    with col4:
+                                        if st.button("🗑️", key=f"unlink_{link['id']}", help="Remove link"):
+                                            supabase_delete('athlete_content', f'id=eq.{link["id"]}')
+                                            st.rerun()
+
+                            # Update order button
+                            if st.button("💾 Update Order", key="update_order_athletes"):
+                                for link in linked_content:
+                                    new_order = st.session_state.get(f"order_{link['id']}", link.get('display_order', 0))
+                                    supabase_patch('athlete_content', f'id=eq.{link["id"]}', {'display_order': new_order})
+                                st.success("Order updated!")
+                                st.rerun()
+                        else:
+                            st.info("No content linked yet. Add content from the Content Library tab.")
+
+                        # Add content link
+                        st.markdown("#### ➕ Link New Content")
+                        all_content = supabase_get('content_items', 'select=id,title,platform&order=title&limit=100') or []
+
+                        if all_content:
+                            content_options = {c['id']: f"{c.get('platform', '').title()}: {c.get('title', 'Untitled')[:60]}" for c in all_content}
+                            selected_content_id = st.selectbox("Select content to link",
+                                options=[None] + list(content_options.keys()),
+                                format_func=lambda x: "Choose content..." if x is None else content_options.get(x, "Unknown"),
+                                key=f"link_content_{athlete_id}")
+
+                            col1, col2, col3 = st.columns([2, 2, 1])
+                            with col1:
+                                link_type = st.selectbox("Content Type", ["video", "podcast", "article", "other"], key=f"link_type_{athlete_id}")
+                            with col2:
+                                link_order = st.number_input("Display Order", min_value=0, value=len(linked_content), key=f"link_order_{athlete_id}")
+                            with col3:
+                                if st.button("🔗 Link", key=f"do_link_{athlete_id}", disabled=selected_content_id is None):
+                                    # Check if already linked
+                                    existing = supabase_get('athlete_content', f'athlete_id=eq.{athlete_id}&content_id=eq.{selected_content_id}')
+                                    if existing:
+                                        st.warning("This content is already linked to this athlete")
+                                    else:
+                                        result = supabase_post('athlete_content', {
+                                            'athlete_id': athlete_id,
+                                            'content_id': selected_content_id,
+                                            'content_type': link_type,
+                                            'display_order': link_order
+                                        })
+                                        if result:
+                                            st.success("Content linked!")
+                                            st.rerun()
+                        else:
+                            st.info("No content available. Add content in the Content Library tab first.")
+
+                    else:
+                        # Show athlete grid when none selected
+                        st.markdown("---")
+                        for i in range(0, len(athletes), 4):
+                            cols = st.columns(4)
+                            for j, col in enumerate(cols):
+                                if i + j < len(athletes):
+                                    athlete = athletes[i + j]
+                                    with col:
+                                        with st.container(border=True):
+                                            # Count linked content
+                                            linked_count = len(supabase_get('athlete_content', f'athlete_id=eq.{athlete["id"]}&select=id') or [])
+                                            st.markdown(f"**{athlete.get('name', 'Unknown')}**")
+                                            st.caption(f"{athlete.get('country', '')} | {linked_count} items")
 
                     st.markdown("---")
                     st.markdown("### ➕ Add New Athlete")
@@ -4621,34 +4134,145 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                 topics = supabase_get('performance_topics', 'order=display_order,category')
 
                 if topics:
-                    # Group by category
-                    categories = {}
-                    for topic in topics:
-                        cat = topic.get('category', 'other')
-                        if cat not in categories:
-                            categories[cat] = []
-                        categories[cat].append(topic)
+                    st.markdown(f"**{len(topics)} topics** in database")
 
-                    st.markdown(f"**{len(topics)} topics** across {len(categories)} categories")
+                    # Topic selector for detailed view
+                    topic_names = ["Select a topic..."] + [f"{t.get('icon_emoji', '📌')} {t['name']}" for t in topics]
+                    selected_topic_idx = st.selectbox("Select Topic to Manage", range(len(topic_names)),
+                                                     format_func=lambda i: topic_names[i], key="topic_selector")
 
-                    for cat, cat_topics in categories.items():
-                        with st.expander(f"📁 {cat.title()} ({len(cat_topics)} topics)", expanded=True):
-                            for topic in cat_topics:
-                                col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
-                                with col1:
-                                    emoji = topic.get('icon_emoji', '📌')
-                                    name = topic.get('name', 'Unknown')
-                                    st.write(f"{emoji} **{name}**")
-                                with col2:
-                                    slug = topic.get('slug', '')
-                                    st.caption(f"`{slug}`")
-                                with col3:
-                                    status = topic.get('status', 'draft')
-                                    status_color = "🟢" if status == 'published' else "🟡"
-                                    st.write(f"{status_color} {status.title()}")
-                                with col4:
-                                    order = topic.get('display_order', 0)
-                                    st.caption(f"#{order}")
+                    if selected_topic_idx > 0:
+                        topic = topics[selected_topic_idx - 1]
+                        topic_id = topic['id']
+
+                        st.markdown("---")
+                        col1, col2 = st.columns([1, 2])
+
+                        with col1:
+                            # Topic info card
+                            with st.container(border=True):
+                                st.markdown(f"## {topic.get('icon_emoji', '📌')} {topic['name']}")
+                                st.caption(f"Category: {topic.get('category', 'other').title()}")
+                                st.caption(f"Slug: `{topic.get('slug', '')}`")
+                                status = topic.get('status', 'draft')
+                                status_color = "🟢" if status == 'published' else "🟡"
+                                st.write(f"Status: {status_color} {status.title()}")
+
+                        with col2:
+                            # Edit topic info
+                            with st.expander("✏️ Edit Topic Info", expanded=False):
+                                edit_name = st.text_input("Name", value=topic.get('name', ''), key=f"edit_name_{topic_id}")
+                                edit_desc = st.text_area("Description", value=topic.get('description', ''), key=f"edit_desc_{topic_id}", height=80)
+                                edit_emoji = st.text_input("Icon Emoji", value=topic.get('icon_emoji', ''), key=f"edit_emoji_{topic_id}")
+                                edit_status = st.selectbox("Status", ["draft", "published"],
+                                    index=0 if topic.get('status') == 'draft' else 1, key=f"edit_status_{topic_id}")
+                                edit_order = st.number_input("Display Order", value=topic.get('display_order', 0), key=f"edit_order_{topic_id}")
+
+                                if st.button("💾 Save Changes", key=f"save_topic_{topic_id}"):
+                                    success = supabase_patch('performance_topics', f'id=eq.{topic_id}', {
+                                        'name': edit_name,
+                                        'description': edit_desc,
+                                        'icon_emoji': edit_emoji,
+                                        'status': edit_status,
+                                        'display_order': edit_order
+                                    })
+                                    if success:
+                                        st.success("Saved!")
+                                        st.rerun()
+
+                        # Content Linking Section
+                        st.markdown("---")
+                        st.markdown("### 🔗 Linked Content")
+
+                        # Fetch linked content for this topic
+                        linked_content = supabase_get('performance_content',
+                            f'topic_id=eq.{topic_id}&select=id,display_order,content_id,content_items(id,title,platform,url,thumbnail_url)&order=display_order') or []
+
+                        if linked_content:
+                            st.markdown(f"**{len(linked_content)} items** linked to this topic")
+
+                            for idx, link in enumerate(linked_content):
+                                content = link.get('content_items', {})
+                                if content:
+                                    col1, col2, col3, col4 = st.columns([4, 2, 1, 1])
+                                    with col1:
+                                        platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
+                                        st.write(f"{platform_emoji} **{content.get('title', 'Untitled')[:50]}**")
+                                    with col2:
+                                        st.caption(content.get('platform', '').title())
+                                    with col3:
+                                        new_order = st.number_input("Order", value=link.get('display_order', idx), key=f"torder_{link['id']}", min_value=0, label_visibility="collapsed")
+                                    with col4:
+                                        if st.button("🗑️", key=f"tunlink_{link['id']}", help="Remove link"):
+                                            supabase_delete('performance_content', f'id=eq.{link["id"]}')
+                                            st.rerun()
+
+                            # Update order button
+                            if st.button("💾 Update Order", key="update_order_topics"):
+                                for link in linked_content:
+                                    new_order = st.session_state.get(f"torder_{link['id']}", link.get('display_order', 0))
+                                    supabase_patch('performance_content', f'id=eq.{link["id"]}', {'display_order': new_order})
+                                st.success("Order updated!")
+                                st.rerun()
+                        else:
+                            st.info("No content linked yet. Add content from the Content Library tab.")
+
+                        # Add content link
+                        st.markdown("#### ➕ Link New Content")
+                        all_content = supabase_get('content_items', 'select=id,title,platform&order=title&limit=100') or []
+
+                        if all_content:
+                            content_options = {c['id']: f"{c.get('platform', '').title()}: {c.get('title', 'Untitled')[:60]}" for c in all_content}
+                            selected_content_id = st.selectbox("Select content to link",
+                                options=[None] + list(content_options.keys()),
+                                format_func=lambda x: "Choose content..." if x is None else content_options.get(x, "Unknown"),
+                                key=f"tlink_content_{topic_id}")
+
+                            col1, col2 = st.columns([3, 1])
+                            with col1:
+                                tlink_order = st.number_input("Display Order", min_value=0, value=len(linked_content), key=f"tlink_order_{topic_id}")
+                            with col2:
+                                if st.button("🔗 Link", key=f"tdo_link_{topic_id}", disabled=selected_content_id is None):
+                                    # Check if already linked
+                                    existing = supabase_get('performance_content', f'topic_id=eq.{topic_id}&content_id=eq.{selected_content_id}')
+                                    if existing:
+                                        st.warning("This content is already linked to this topic")
+                                    else:
+                                        result = supabase_post('performance_content', {
+                                            'topic_id': topic_id,
+                                            'content_id': selected_content_id,
+                                            'display_order': tlink_order
+                                        })
+                                        if result:
+                                            st.success("Content linked!")
+                                            st.rerun()
+                        else:
+                            st.info("No content available. Add content in the Content Library tab first.")
+
+                    else:
+                        # Show topics grouped by category when none selected
+                        st.markdown("---")
+                        categories = {}
+                        for topic in topics:
+                            cat = topic.get('category', 'other')
+                            if cat not in categories:
+                                categories[cat] = []
+                            categories[cat].append(topic)
+
+                        for cat, cat_topics in categories.items():
+                            with st.expander(f"📁 {cat.title()} ({len(cat_topics)} topics)", expanded=True):
+                                for topic in cat_topics:
+                                    linked_count = len(supabase_get('performance_content', f'topic_id=eq.{topic["id"]}&select=id') or [])
+                                    col1, col2, col3 = st.columns([3, 2, 1])
+                                    with col1:
+                                        emoji = topic.get('icon_emoji', '📌')
+                                        st.write(f"{emoji} **{topic.get('name', 'Unknown')}**")
+                                    with col2:
+                                        status = topic.get('status', 'draft')
+                                        status_color = "🟢" if status == 'published' else "🟡"
+                                        st.caption(f"{status_color} {status.title()}")
+                                    with col3:
+                                        st.caption(f"{linked_count} items")
 
                     st.markdown("---")
 
@@ -4685,6 +4309,237 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                 st.error("Failed to add topic. Check if slug is unique.")
                         else:
                             st.warning("Name and slug are required")
+
+            # =================== CONTENT LIBRARY TAB ===================
+            with premium_tab4:
+                st.markdown("### 📦 Content Library")
+                st.markdown("Manage all content items that can be linked to athletes and performance topics")
+
+                # Fetch all content
+                all_content = supabase_get('content_items', 'order=created_at.desc&limit=200') or []
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Items", len(all_content))
+                with col2:
+                    youtube_count = len([c for c in all_content if c.get('platform') == 'youtube'])
+                    st.metric("Videos", youtube_count)
+                with col3:
+                    podcast_count = len([c for c in all_content if c.get('platform') == 'podcast'])
+                    st.metric("Podcasts", podcast_count)
+
+                st.markdown("---")
+
+                # Filter controls
+                col1, col2 = st.columns(2)
+                with col1:
+                    platform_filter = st.selectbox("Filter by Platform",
+                        ["All", "youtube", "podcast", "article", "reddit"],
+                        format_func=lambda x: "All Platforms" if x == "All" else x.title())
+                with col2:
+                    search_term = st.text_input("Search by title", placeholder="Search...")
+
+                # Apply filters
+                filtered_content = all_content
+                if platform_filter != "All":
+                    filtered_content = [c for c in filtered_content if c.get('platform') == platform_filter]
+                if search_term:
+                    filtered_content = [c for c in filtered_content if search_term.lower() in c.get('title', '').lower()]
+
+                st.markdown(f"**Showing {len(filtered_content)} items**")
+
+                # Content list
+                if filtered_content:
+                    for content in filtered_content[:50]:  # Limit display
+                        with st.container(border=True):
+                            col1, col2, col3 = st.columns([4, 1, 1])
+                            with col1:
+                                platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
+                                title = content.get('title', 'Untitled')[:80]
+                                st.markdown(f"{platform_emoji} **{title}**")
+                                st.caption(f"URL: {content.get('url', 'N/A')[:60]}...")
+                            with col2:
+                                st.caption(content.get('platform', '').title())
+                                if content.get('view_count'):
+                                    st.caption(f"👁 {content['view_count']:,}")
+                            with col3:
+                                if st.button("🗑️", key=f"del_content_{content['id']}", help="Delete"):
+                                    supabase_delete('content_items', f'id=eq.{content["id"]}')
+                                    st.rerun()
+
+                st.markdown("---")
+                st.markdown("### ➕ Add New Content")
+
+                with st.expander("Add Content Manually", expanded=False):
+                    with st.form("add_content_form"):
+                        content_title = st.text_input("Title *")
+                        content_url = st.text_input("URL *")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            content_platform = st.selectbox("Platform", ["youtube", "podcast", "article", "reddit"])
+                            content_thumbnail = st.text_input("Thumbnail URL")
+                        with col2:
+                            content_views = st.number_input("View Count", min_value=0, value=0)
+                            content_duration = st.number_input("Duration (minutes)", min_value=0, value=0)
+
+                        content_description = st.text_area("Description", height=80)
+
+                        if st.form_submit_button("Add Content"):
+                            if content_title and content_url:
+                                # Check if URL exists
+                                existing = supabase_get('content_items', f'url=eq.{quote(content_url)}')
+                                if existing:
+                                    st.warning("This URL already exists in the database")
+                                else:
+                                    result = supabase_post('content_items', {
+                                        'title': content_title,
+                                        'url': content_url,
+                                        'platform': content_platform,
+                                        'thumbnail_url': content_thumbnail or None,
+                                        'view_count': content_views,
+                                        'duration_seconds': content_duration * 60 if content_duration else None,
+                                        'description': content_description,
+                                        'status': 'discovered'
+                                    })
+                                    if result:
+                                        st.success(f"Added: {content_title}")
+                                        st.rerun()
+                            else:
+                                st.warning("Title and URL are required")
+
+                # YouTube Discovery
+                with st.expander("🎬 YouTube Discovery", expanded=False):
+                    st.markdown("Search YouTube for Hyrox-related content")
+
+                    yt_search = st.text_input("Search Query", value="hyrox training", key="yt_search")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        yt_max_results = st.slider("Max Results", 5, 50, 10)
+                    with col2:
+                        yt_order = st.selectbox("Order By", ["relevance", "date", "viewCount"])
+
+                    if st.button("🔍 Search YouTube", key="yt_search_btn"):
+                        youtube_api_key = os.getenv('YOUTUBE_API_KEY')
+                        if not youtube_api_key:
+                            st.error("YOUTUBE_API_KEY not configured in .env file")
+                        else:
+                            try:
+                                search_url = f"https://www.googleapis.com/youtube/v3/search?part=snippet&q={quote(yt_search)}&type=video&maxResults={yt_max_results}&order={yt_order}&key={youtube_api_key}"
+                                response = requests.get(search_url)
+                                if response.status_code == 200:
+                                    data = response.json()
+                                    videos = data.get('items', [])
+                                    st.success(f"Found {len(videos)} videos")
+
+                                    for video in videos:
+                                        video_id = video['id']['videoId']
+                                        snippet = video['snippet']
+                                        title = snippet['title']
+                                        thumbnail = snippet['thumbnails']['medium']['url']
+                                        channel = snippet['channelTitle']
+
+                                        col1, col2 = st.columns([3, 1])
+                                        with col1:
+                                            st.image(thumbnail, width=120)
+                                            st.markdown(f"**{title}**")
+                                            st.caption(f"Channel: {channel}")
+                                        with col2:
+                                            video_url = f"https://www.youtube.com/watch?v={video_id}"
+                                            # Check if already in database
+                                            existing = supabase_get('content_items', f'url=eq.{quote(video_url)}')
+                                            if existing:
+                                                st.write("✅ Already added")
+                                            else:
+                                                if st.button("➕ Add", key=f"add_yt_{video_id}"):
+                                                    result = supabase_post('content_items', {
+                                                        'title': title,
+                                                        'url': video_url,
+                                                        'platform': 'youtube',
+                                                        'thumbnail_url': thumbnail,
+                                                        'description': snippet.get('description', ''),
+                                                        'status': 'discovered'
+                                                    })
+                                                    if result:
+                                                        st.success("Added!")
+                                                        st.rerun()
+                                        st.markdown("---")
+                                else:
+                                    st.error(f"YouTube API error: {response.status_code}")
+                            except Exception as e:
+                                st.error(f"Error searching YouTube: {e}")
+
+                # Podcast Discovery (using Podcast Index API)
+                with st.expander("🎙️ Podcast Discovery", expanded=False):
+                    st.markdown("Search for Hyrox-related podcasts")
+
+                    podcast_search = st.text_input("Search Query", value="hyrox fitness", key="podcast_search")
+
+                    if st.button("🔍 Search Podcasts", key="podcast_search_btn"):
+                        podcast_api_key = os.getenv('PODCAST_INDEX_KEY')
+                        podcast_api_secret = os.getenv('PODCAST_INDEX_SECRET')
+
+                        if not podcast_api_key or not podcast_api_secret:
+                            st.warning("Podcast Index API keys not configured. Add PODCAST_INDEX_KEY and PODCAST_INDEX_SECRET to .env")
+                            st.info("Get free API keys at: https://api.podcastindex.org/")
+                        else:
+                            try:
+                                import hashlib
+                                import time as time_module
+
+                                # Create auth headers for Podcast Index
+                                epoch_time = int(time_module.time())
+                                data_to_hash = podcast_api_key + podcast_api_secret + str(epoch_time)
+                                sha_1 = hashlib.sha1(data_to_hash.encode()).hexdigest()
+
+                                headers = {
+                                    "X-Auth-Date": str(epoch_time),
+                                    "X-Auth-Key": podcast_api_key,
+                                    "Authorization": sha_1,
+                                    "User-Agent": "HyroxWeekly/1.0"
+                                }
+
+                                search_url = f"https://api.podcastindex.org/api/1.0/search/byterm?q={quote(podcast_search)}"
+                                response = requests.get(search_url, headers=headers)
+
+                                if response.status_code == 200:
+                                    data = response.json()
+                                    podcasts = data.get('feeds', [])[:10]
+                                    st.success(f"Found {len(podcasts)} podcasts")
+
+                                    for podcast in podcasts:
+                                        title = podcast.get('title', 'Unknown')
+                                        url = podcast.get('url', '')
+                                        image = podcast.get('image', '')
+                                        author = podcast.get('author', 'Unknown')
+
+                                        col1, col2 = st.columns([3, 1])
+                                        with col1:
+                                            if image:
+                                                st.image(image, width=80)
+                                            st.markdown(f"**{title}**")
+                                            st.caption(f"By: {author}")
+                                        with col2:
+                                            existing = supabase_get('content_items', f'url=eq.{quote(url)}') if url else None
+                                            if existing:
+                                                st.write("✅ Already added")
+                                            elif url:
+                                                if st.button("➕ Add", key=f"add_pod_{podcast.get('id', title[:10])}"):
+                                                    result = supabase_post('content_items', {
+                                                        'title': title,
+                                                        'url': url,
+                                                        'platform': 'podcast',
+                                                        'thumbnail_url': image,
+                                                        'description': podcast.get('description', ''),
+                                                        'status': 'discovered'
+                                                    })
+                                                    if result:
+                                                        st.success("Added!")
+                                                        st.rerun()
+                                        st.markdown("---")
+                                else:
+                                    st.error(f"Podcast API error: {response.status_code}")
+                            except Exception as e:
+                                st.error(f"Error searching podcasts: {e}")
 
     # ========================================================================
     # ANALYTICS PAGE
