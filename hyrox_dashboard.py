@@ -3733,10 +3733,7 @@ def main():
     elif page == "🏃 Athletes":
         st.markdown("## 🏃 Athlete Spotlight Management")
         st.markdown("Manage athletes for the newsletter spotlight section")
-        
-        # Initialize athletes table and seed if empty
-        init_athletes_table()
-        
+
         # Seed button
         col1, col2, col3 = st.columns([2, 1, 1])
         with col1:
