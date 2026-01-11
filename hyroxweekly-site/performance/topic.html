@@ -174,6 +174,82 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; background: #1a1a1a;
   color: rgba(255,255,255,0.4);
 }
 
+/* Content Grid */
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.content-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  display: block;
+}
+.content-card:hover {
+  border-color: rgba(204, 85, 0, 0.5);
+  transform: translateY(-4px);
+}
+
+.content-thumbnail {
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #2a2a2a;
+  position: relative;
+}
+.content-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.content-duration {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.content-platform {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 20px;
+}
+
+.content-info {
+  padding: 16px;
+}
+.content-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.content-meta {
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  display: flex;
+  gap: 12px;
+}
+.content-meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* Premium Gate */
 .premium-gate {
   text-align: center;
@@ -298,7 +374,71 @@ function getSlug() {
   return params.get('slug');
 }
 
-function renderTopic(topic) {
+function renderContentCard(item) {
+  const platformEmoji = {
+    'youtube': '▶️',
+    'spotify': '🎧',
+    'apple_podcasts': '🎙️',
+    'reddit': '💬',
+    'article': '📄'
+  }[item.platform] || '🔗';
+
+  const duration = item.duration_seconds
+    ? `${Math.floor(item.duration_seconds / 60)}:${String(item.duration_seconds % 60).padStart(2, '0')}`
+    : '';
+
+  return `
+    <a href="${item.url}" target="_blank" class="content-card">
+      <div class="content-thumbnail">
+        ${item.thumbnail_url ? `<img src="${item.thumbnail_url}" alt="">` : ''}
+        ${duration ? `<span class="content-duration">${duration}</span>` : ''}
+        <span class="content-platform">${platformEmoji}</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">${item.title}</div>
+        <div class="content-meta">
+          ${item.view_count ? `<span>👁 ${formatCount(item.view_count)}</span>` : ''}
+          ${item.published_date ? `<span>${formatDate(item.published_date)}</span>` : ''}
+        </div>
+      </div>
+    </a>
+  `;
+}
+
+function formatCount(num) {
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return num.toString();
+}
+
+function formatDate(dateStr) {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function renderContentSection(title, items, emptyMessage) {
+  if (!items || items.length === 0) {
+    return `
+      <div class="content-section">
+        <div class="section-title">${title}</div>
+        <div class="coming-soon-box">
+          <p>${emptyMessage}</p>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="content-section">
+      <div class="section-title">${title}</div>
+      <div class="content-grid">
+        ${items.map(renderContentCard).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderTopic(topic, content = []) {
   document.title = `${topic.name} - Hyrox Weekly Premium`;
 
   const targets = stationTargets[topic.slug];
@@ -326,6 +466,12 @@ function renderTopic(topic) {
     </div>
   ` : '';
 
+  // Group content by type
+  const videos = content.filter(c => c.platform === 'youtube');
+  const podcasts = content.filter(c => ['spotify', 'apple_podcasts'].includes(c.platform));
+  const discussions = content.filter(c => c.platform === 'reddit');
+  const articles = content.filter(c => c.platform === 'article' || c.content_type === 'article');
+
   return `
     <div class="topic-header">
       <div class="topic-icon-large">${topic.icon_emoji || '📌'}</div>
@@ -335,26 +481,10 @@ function renderTopic(topic) {
 
     ${overviewHtml}
 
-    <div class="content-section">
-      <div class="section-title">Technique Videos</div>
-      <div class="coming-soon-box">
-        <p>Curated technique breakdown videos coming soon</p>
-      </div>
-    </div>
-
-    <div class="content-section">
-      <div class="section-title">Training Tips</div>
-      <div class="coming-soon-box">
-        <p>Pro training tips and workouts coming soon</p>
-      </div>
-    </div>
-
-    <div class="content-section">
-      <div class="section-title">Common Mistakes</div>
-      <div class="coming-soon-box">
-        <p>Avoid these common mistakes - content coming soon</p>
-      </div>
-    </div>
+    ${renderContentSection('Videos', videos, 'Curated technique breakdown videos coming soon')}
+    ${renderContentSection('Podcasts', podcasts, 'Podcast episodes coming soon')}
+    ${renderContentSection('Discussions', discussions, 'Community discussions coming soon')}
+    ${renderContentSection('Articles', articles, 'Articles coming soon')}
   `;
 }
 
@@ -366,18 +496,33 @@ async function fetchTopic() {
   }
 
   try {
-    const response = await fetch(
+    // Fetch topic data
+    const topicResponse = await fetch(
       `${SUPABASE_URL}/rest/v1/performance_topics?slug=eq.${slug}&select=*`,
       { headers: { 'apikey': SUPABASE_ANON_KEY } }
     );
-    const data = await response.json();
+    const topicData = await topicResponse.json();
 
-    if (data.length === 0) {
+    if (topicData.length === 0) {
       document.getElementById('topicContent').innerHTML = '<p>Topic not found</p>';
       return;
     }
 
-    document.getElementById('topicContent').innerHTML = renderTopic(data[0]);
+    const topic = topicData[0];
+
+    // Fetch linked content for this topic
+    const contentResponse = await fetch(
+      `${SUPABASE_URL}/rest/v1/performance_content?topic_id=eq.${topic.id}&select=display_order,content_items(*)&order=display_order.asc`,
+      { headers: { 'apikey': SUPABASE_ANON_KEY } }
+    );
+    const contentLinks = await contentResponse.json();
+
+    // Extract the content_items from the joined response
+    const content = contentLinks
+      .filter(link => link.content_items)
+      .map(link => link.content_items);
+
+    document.getElementById('topicContent').innerHTML = renderTopic(topic, content);
   } catch (error) {
     console.error('Failed to fetch topic:', error);
     document.getElementById('topicContent').innerHTML = '<p>Error loading topic</p>';
