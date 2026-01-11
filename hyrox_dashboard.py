@@ -169,7 +169,14 @@ def format_datetime_local(dt, tz_name='US/Pacific', fmt='%b %d, %Y %I:%M %p'):
     """Format a datetime for display in local timezone"""
     if dt is None:
         return ''
-    
+
+    # Handle string dates from Supabase REST API
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
+        except:
+            return dt[:16] if len(dt) >= 16 else dt
+
     local_dt = utc_to_local(dt, tz_name)
     return local_dt.strftime(fmt)
 
@@ -178,7 +185,23 @@ def format_date_local(dt, tz_name='US/Pacific', fmt='%b %d, %Y'):
     """Format a date for display in local timezone"""
     if dt is None:
         return ''
-    
+
+    # Handle string dates from Supabase REST API
+    if isinstance(dt, str):
+        try:
+            # Try parsing ISO format datetime
+            if 'T' in dt:
+                dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
+            else:
+                # Just a date string
+                from datetime import date
+                parts = dt.split('-')
+                if len(parts) == 3:
+                    return datetime(int(parts[0]), int(parts[1]), int(parts[2])).strftime(fmt)
+                return dt
+        except:
+            return dt[:10] if len(dt) >= 10 else dt
+
     if hasattr(dt, 'tzinfo'):
         local_dt = utc_to_local(dt, tz_name)
         return local_dt.strftime(fmt)
