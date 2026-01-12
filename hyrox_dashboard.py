@@ -2146,8 +2146,25 @@ def render_content_item(item, display_tz):
                     clear_content_caches()
                     st.rerun()
 
-            # Display order - removed auto-save to prevent refresh loops
-            # Order is now set via the bulk "Save Order" button in the main curation view
+            # Display order with save button to prevent refresh loops
+            current_order = item.get('display_order') or 999
+            order_col1, order_col2 = st.columns([2, 1])
+            with order_col1:
+                new_order = st.number_input(
+                    "Order",
+                    min_value=1,
+                    max_value=99,
+                    value=current_order if current_order < 999 else 1,
+                    key=f"order_{item['id']}",
+                    help="Lower = first",
+                    label_visibility="collapsed"
+                )
+            with order_col2:
+                if st.button("💾", key=f"save_order_{item['id']}", help="Save order"):
+                    if new_order != current_order:
+                        update_content_display_order(item['id'], new_order)
+                        clear_content_caches()
+                        st.rerun()
 
         # Expandable section for description editing with AI blurb
         with st.expander("✏️ Edit Description / AI Blurb", expanded=False):
