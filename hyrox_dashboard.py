@@ -2435,11 +2435,11 @@ def render_athlete_card(athlete):
                 st.caption("No photo")
 
         with top_col2:
-            st.markdown(f"**{athlete['name']}**")
-            if athlete['instagram_handle']:
+            st.markdown(f"**{athlete.get('name', 'Unknown')}**")
+            if athlete.get('instagram_handle'):
                 handle = athlete['instagram_handle'].replace('@', '')
                 st.markdown(f"[@{athlete['instagram_handle']}](https://instagram.com/{handle})")
-            st.caption(f"🌍 {athlete['country'] or 'Unknown'} • {'🏆 Elite' if athlete.get('tier') == 'elite' else '📱 Influencer'}")
+            st.caption(f"🌍 {athlete.get('country') or 'Unknown'} • {'🏆 Elite' if athlete.get('tier') == 'elite' else '📱 Influencer'}")
             st.caption(f"Featured {athlete.get('featured_count') or 0} times | Last: {athlete.get('last_featured_date') or 'Never'}")
 
         st.markdown("---")
@@ -2449,18 +2449,19 @@ def render_athlete_card(athlete):
             # Row 1: Name and Instagram
             row1_col1, row1_col2, row1_col3 = st.columns(3)
             with row1_col1:
-                new_name = st.text_input("Name", value=athlete['name'] or '', key=f"name_{athlete['id']}")
+                new_name = st.text_input("Name", value=athlete.get('name') or '', key=f"name_{athlete['id']}")
             with row1_col2:
-                new_handle = st.text_input("Instagram Handle", value=athlete['instagram_handle'] or '', key=f"handle_{athlete['id']}")
+                new_handle = st.text_input("Instagram Handle", value=athlete.get('instagram_handle') or '', key=f"handle_{athlete['id']}")
             with row1_col3:
                 # Generate Instagram URL from handle
-                default_ig_url = f"https://instagram.com/{athlete['instagram_handle'].replace('@', '')}" if athlete.get('instagram_handle') else ''
+                ig_handle = athlete.get('instagram_handle') or ''
+                default_ig_url = f"https://instagram.com/{ig_handle.replace('@', '')}" if ig_handle else ''
                 new_instagram_url = st.text_input("Instagram URL", value=default_ig_url, key=f"igurl_{athlete['id']}")
 
             # Row 2: Country, Category, Website
             row2_col1, row2_col2, row2_col3 = st.columns(3)
             with row2_col1:
-                new_country = st.text_input("Country", value=athlete['country'] or '', key=f"country_{athlete['id']}")
+                new_country = st.text_input("Country", value=athlete.get('country') or '', key=f"country_{athlete['id']}")
             with row2_col2:
                 new_tier = st.selectbox(
                     "Tier",
@@ -2495,13 +2496,13 @@ def render_athlete_card(athlete):
                     st.warning("Please enter an Instagram handle first")
 
             # Row 4: Bio and Achievements
-            new_bio = st.text_area("Bio", value=athlete['bio'] or '', height=80, key=f"bio_{athlete['id']}")
-            new_achievements = st.text_input("Achievements", value=athlete['achievements'] or '', key=f"ach_{athlete['id']}")
+            new_bio = st.text_area("Bio", value=athlete.get('bio') or '', height=80, key=f"bio_{athlete['id']}")
+            new_achievements = st.text_input("Achievements", value=athlete.get('achievements') or '', key=f"ach_{athlete['id']}")
 
             # Row 5: Active checkbox and buttons
             row5_col1, row5_col2, row5_col3 = st.columns([2, 1, 1])
             with row5_col1:
-                is_active = st.checkbox("Active", value=athlete['is_active'], key=f"active_{athlete['id']}")
+                is_active = st.checkbox("Active", value=athlete.get('is_active', True), key=f"active_{athlete['id']}")
             with row5_col2:
                 if st.form_submit_button("💾 Save", use_container_width=True):
                     # Auto-generate Instagram URL if handle changed but URL not
