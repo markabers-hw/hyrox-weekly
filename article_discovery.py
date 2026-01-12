@@ -40,16 +40,17 @@ else:
     WEEK_START = WEEK_END - timedelta(days=14)
 
 # RSS Feeds - Only sources that regularly cover Hyrox
+# Note: Google News is great for discovery but provides generic placeholder thumbnails.
+# Direct RSS feeds provide proper article thumbnails.
 RSS_FEEDS = [
-    # Google News aggregates Hyrox articles from ALL sources - this is the main discovery source
-    {'name': 'Google News - Hyrox', 'url': 'https://news.google.com/rss/search?q=hyrox&hl=en-US&gl=US&ceid=US:en', 'category': 'other', 'skip_relevance_check': True},
-
-    # Hyrox-specific (always check)
+    # Direct RSS feeds first (these have proper thumbnails)
     {'name': 'Hyrox Official', 'url': 'https://hyrox.com/feed/', 'category': 'race_recap'},
-
-    # Functional Fitness sites that cover Hyrox regularly
     {'name': 'Morning Chalk Up', 'url': 'https://morningchalkup.com/feed/', 'category': 'training'},
     {'name': 'BarBend', 'url': 'https://barbend.com/feed/', 'category': 'training'},
+
+    # Google News aggregates from all sources - wide discovery but generic thumbnails
+    # TODO: Thumbnails from Google News are placeholders. Consider adding more direct RSS feeds.
+    {'name': 'Google News - Hyrox', 'url': 'https://news.google.com/rss/search?q=hyrox&hl=en-US&gl=US&ceid=US:en', 'category': 'other', 'skip_relevance_check': True},
 ]
 
 # Keywords for relevance matching - strict Hyrox focus
@@ -73,7 +74,10 @@ HYROX_SECONDARY_KEYWORDS = [
 
 class ArticleDiscovery:
     def __init__(self):
-        self.headers = {'User-Agent': 'HyroxWeekly/1.0'}
+        # Use a browser-like User-Agent for better compatibility
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
     
     def fetch_rss_feed(self, feed_url, feed_name):
         articles = []
@@ -153,14 +157,33 @@ class ArticleDiscovery:
         return datetime.now()
     
     def extract_thumbnail(self, url):
+        """Extract thumbnail from article page using og:image or twitter:image meta tags."""
         try:
-            response = requests.get(url, headers=self.headers, timeout=5)
+            response = requests.get(url, headers=self.headers, timeout=10, allow_redirects=True)
             soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Try og:image first (most common)
             og = soup.find('meta', property='og:image')
-            if og: return og.get('content', '')
+            if og and og.get('content'):
+                img_url = og.get('content')
+                # Skip placeholder/icon images
+                if not any(skip in img_url.lower() for skip in ['logo', 'icon', 'favicon', '1x1', 'placeholder']):
+                    return img_url
+
+            # Try twitter:image
             tw = soup.find('meta', attrs={'name': 'twitter:image'})
-            if tw: return tw.get('content', '')
-        except: pass
+            if tw and tw.get('content'):
+                img_url = tw.get('content')
+                if not any(skip in img_url.lower() for skip in ['logo', 'icon', 'favicon', '1x1', 'placeholder']):
+                    return img_url
+
+            # Try twitter:image:src (some sites use this)
+            tw_src = soup.find('meta', attrs={'name': 'twitter:image:src'})
+            if tw_src and tw_src.get('content'):
+                return tw_src.get('content')
+
+        except Exception as e:
+            pass
         return ''
 
 
@@ -203,6 +226,23 @@ class ArticleDatabaseManager:
     def article_exists(self, url):
         self.cursor.execute("SELECT id FROM content_items WHERE url = %s", (url,))
         return self.cursor.fetchone() is not None
+
+    def get_article_needing_thumbnail(self, url):
+        """Check if article exists and needs thumbnail update."""
+        self.cursor.execute("SELECT id, thumbnail_url FROM content_items WHERE url = %s", (url,))
+        result = self.cursor.fetchone()
+        if not result:
+            return None, False
+        thumbnail = result.get('thumbnail_url') or ''
+        # Needs update only if no thumbnail at all
+        # Note: Google News provides hosted thumbnails which are acceptable
+        needs_update = not thumbnail
+        return result['id'], needs_update
+
+    def update_thumbnail(self, article_id, thumbnail_url):
+        """Update thumbnail for existing article."""
+        self.cursor.execute("UPDATE content_items SET thumbnail_url = %s WHERE id = %s", (thumbnail_url, article_id))
+        self.conn.commit()
     
     def save_article(self, article, creator_id, category='other'):
         cols = ['title', 'url', 'platform', 'creator_id', 'status']
@@ -348,17 +388,34 @@ def main():
 
     print(f"\n💾 Saving {len(relevant)} articles...")
     db.connect()
-    
-    saved, skipped = 0, 0
+
+    saved, skipped, updated = 0, 0, 0
     for article in relevant:
-        if db.article_exists(article['url']):
+        # Check if article exists and needs thumbnail update
+        article_id, needs_thumbnail = db.get_article_needing_thumbnail(article['url'])
+
+        if article_id and needs_thumbnail:
+            # Update thumbnail for existing article
+            print(f"      Updating thumbnail for: {article['title'][:40]}...")
+            thumbnail = discovery.extract_thumbnail(article['url'])
+            if thumbnail:
+                db.update_thumbnail(article_id, thumbnail)
+                updated += 1
+                print(f"   🔄 Updated: {article['title'][:50]}...")
+            continue
+        elif article_id:
+            # Article exists and has good thumbnail
             skipped += 1
             continue
-        
+
         creator_id = db.get_or_create_creator(article['source'])
-        if not article.get('thumbnail_url'):
+
+        # Always fetch thumbnail from article page for Google News (RSS returns placeholder)
+        # Also fetch if no thumbnail exists
+        if article.get('skip_relevance_check') or not article.get('thumbnail_url'):
+            print(f"      Fetching thumbnail for: {article['title'][:40]}...")
             article['thumbnail_url'] = discovery.extract_thumbnail(article['url'])
-        
+
         try:
             db.save_article(article, creator_id, article.get('default_category', 'other'))
             saved += 1
@@ -367,9 +424,9 @@ def main():
             print(f"   ❌ Error: {e}")
     
     db.close()
-    
+
     print("\n" + "=" * 70)
-    print(f"Article discovery complete! Saved: {saved}, Skipped: {skipped}")
+    print(f"Article discovery complete! Saved: {saved}, Updated: {updated}, Skipped: {skipped}")
     print("=" * 70)
 
 
