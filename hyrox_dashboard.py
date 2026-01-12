@@ -275,6 +275,129 @@ def delete_priority_source(source_id):
     return result
 
 
+# ============================================================================
+# INSTAGRAM PROFILE IMAGE FETCHING & SUPABASE STORAGE
+# ============================================================================
+
+def fetch_instagram_profile_pic(instagram_handle):
+    """
+    Fetch Instagram profile picture URL from a public profile.
+    Returns the high-res profile picture URL or None if failed.
+    """
+    handle = instagram_handle.replace('@', '').strip()
+    if not handle:
+        return None, "No Instagram handle provided"
+
+    try:
+        # Try fetching the Instagram profile page
+        url = f"https://www.instagram.com/{handle}/"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        }
+
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            return None, f"Failed to fetch profile (status {response.status_code})"
+
+        html = response.text
+
+        # Look for og:image meta tag which contains the profile picture
+        import re
+        og_image_match = re.search(r'<meta property="og:image" content="([^"]+)"', html)
+        if og_image_match:
+            profile_pic_url = og_image_match.group(1).replace('&amp;', '&')
+            return profile_pic_url, None
+
+        # Alternative: look for profile_pic_url in the JSON data
+        json_match = re.search(r'"profile_pic_url_hd":"([^"]+)"', html)
+        if json_match:
+            profile_pic_url = json_match.group(1).replace('\\u0026', '&')
+            return profile_pic_url, None
+
+        return None, "Could not find profile picture in page"
+
+    except requests.Timeout:
+        return None, "Request timed out"
+    except Exception as e:
+        return None, f"Error: {str(e)}"
+
+
+def upload_image_to_supabase_storage(image_url, filename, bucket='athlete-images'):
+    """
+    Download an image from URL and upload to Supabase Storage.
+    Returns the public URL of the uploaded image or None if failed.
+    """
+    if not SUPABASE_SERVICE_KEY:
+        return None, "Supabase service key not configured"
+
+    try:
+        # Download the image
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        }
+        response = requests.get(image_url, headers=headers, timeout=15)
+        if response.status_code != 200:
+            return None, f"Failed to download image (status {response.status_code})"
+
+        image_data = response.content
+        content_type = response.headers.get('Content-Type', 'image/jpeg')
+
+        # Ensure filename has extension
+        if not any(filename.endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+            if 'png' in content_type:
+                filename += '.png'
+            elif 'webp' in content_type:
+                filename += '.webp'
+            else:
+                filename += '.jpg'
+
+        # Upload to Supabase Storage
+        storage_url = f"{SUPABASE_URL}/storage/v1/object/{bucket}/{filename}"
+        upload_headers = {
+            'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}',
+            'Content-Type': content_type,
+            'x-upsert': 'true'  # Overwrite if exists
+        }
+
+        upload_response = requests.post(storage_url, headers=upload_headers, data=image_data)
+
+        if upload_response.status_code in [200, 201]:
+            # Return the public URL
+            public_url = f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{filename}"
+            return public_url, None
+        else:
+            error_msg = upload_response.text[:200] if upload_response.text else f"Status {upload_response.status_code}"
+            return None, f"Upload failed: {error_msg}"
+
+    except Exception as e:
+        return None, f"Error: {str(e)}"
+
+
+def fetch_and_store_athlete_image(instagram_handle, athlete_slug=None):
+    """
+    Fetch Instagram profile picture and store in Supabase Storage.
+    Returns the permanent Supabase Storage URL.
+    """
+    # Fetch from Instagram
+    ig_url, error = fetch_instagram_profile_pic(instagram_handle)
+    if error:
+        return None, f"Instagram fetch failed: {error}"
+
+    # Generate filename
+    handle = instagram_handle.replace('@', '').strip()
+    filename = athlete_slug if athlete_slug else handle
+    filename = f"{filename}-profile"
+
+    # Upload to Supabase Storage
+    storage_url, error = upload_image_to_supabase_storage(ig_url, filename)
+    if error:
+        return None, f"Storage upload failed: {error}"
+
+    return storage_url, None
+
+
 def get_athletes(category_filter='all', active_only=True):
     """Get athletes from database"""
     params = "order=name"
@@ -2350,8 +2473,28 @@ def render_athlete_card(athlete):
             with row2_col3:
                 new_website = st.text_input("Website", value=athlete.get('website') or '', key=f"web_{athlete['id']}")
 
-            # Row 3: Profile Image URL
-            new_profile_image = st.text_input("Profile Image URL", value=athlete.get('profile_image_url') or '', key=f"img_{athlete['id']}")
+            # Row 3: Profile Image URL with fetch button
+            img_col1, img_col2 = st.columns([3, 1])
+            with img_col1:
+                new_profile_image = st.text_input("Profile Image URL", value=athlete.get('profile_image_url') or '', key=f"img_{athlete['id']}")
+            with img_col2:
+                st.markdown("<br>", unsafe_allow_html=True)  # Spacing
+                fetch_clicked = st.form_submit_button("📷 Fetch from IG", help="Fetch profile pic from Instagram")
+
+            # Handle fetch from Instagram button
+            if fetch_clicked:
+                if new_handle:
+                    with st.spinner("Fetching from Instagram..."):
+                        slug = athlete.get('slug') or new_name.lower().replace(' ', '-')
+                        image_url, error = fetch_and_store_athlete_image(new_handle, slug)
+                        if image_url:
+                            update_athlete(athlete['id'], profile_image_url=image_url)
+                            st.success(f"Profile image fetched and saved!")
+                            st.rerun()
+                        else:
+                            st.error(f"Failed: {error}")
+                else:
+                    st.warning("Please enter an Instagram handle first")
 
             # Row 4: Bio and Achievements
             new_bio = st.text_area("Bio", value=athlete['bio'] or '', height=80, key=f"bio_{athlete['id']}")
@@ -3826,29 +3969,43 @@ def main():
         # Tab 2: Add Athlete
         with tab2:
             st.markdown("### Add New Athlete")
-            
-            st.info("""
-            **📸 Profile Image Tips:**
-            - Instagram CDN URLs (instagram.*.fbcdn.net) won't work in newsletters - they expire and block embedding
-            - Use permanent image URLs from: athlete websites, Wikipedia, sports databases, or upload to Imgur/Cloudinary
-            - If no image URL is provided, a stylized avatar with initials will be generated automatically
-            """)
-            
+
+            st.info("**📸 Tip:** Use the 'Fetch from IG' button to automatically fetch and store the profile image from Instagram!")
+
             with st.form("add_athlete_form"):
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
                     name = st.text_input("Name *", placeholder="Hunter McIntyre")
                     instagram_handle = st.text_input("Instagram Handle *", placeholder="hunterthehunter")
                     country = st.text_input("Country", placeholder="USA")
                     category = st.selectbox("Category", options=['elite', 'influencer'])
                     website = st.text_input("Website", placeholder="https://...")
-                
+
                 with col2:
                     bio = st.text_area("Bio", placeholder="Professional Hyrox athlete...", height=100)
                     achievements = st.text_input("Achievements", placeholder="World Champion, Elite 15")
-                    profile_image_url = st.text_input("Profile Image URL", placeholder="https://example.com/photo.jpg", help="Use permanent URLs only - not Instagram CDN links")
-                
+                    img_col1, img_col2 = st.columns([3, 1])
+                    with img_col1:
+                        profile_image_url = st.text_input("Profile Image URL", placeholder="https://...", key="add_img_url")
+                    with img_col2:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        fetch_ig = st.form_submit_button("📷 Fetch IG")
+
+                # Handle fetch from Instagram for new athlete
+                if fetch_ig:
+                    if instagram_handle:
+                        with st.spinner("Fetching from Instagram..."):
+                            slug = name.lower().replace(' ', '-') if name else instagram_handle.replace('@', '')
+                            image_url, error = fetch_and_store_athlete_image(instagram_handle, slug)
+                            if image_url:
+                                st.success(f"Fetched! URL: {image_url[:50]}...")
+                                st.info("The image has been stored. Copy the URL above or add the athlete and edit to use it.")
+                            else:
+                                st.error(f"Failed: {error}")
+                    else:
+                        st.warning("Please enter an Instagram handle first")
+
                 submitted = st.form_submit_button("➕ Add Athlete", type="primary", use_container_width=True)
                 
                 if submitted:
