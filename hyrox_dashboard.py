@@ -289,34 +289,30 @@ def fetch_instagram_profile_pic(instagram_handle):
         return None, "No Instagram handle provided"
 
     try:
-        # Try fetching the Instagram profile page
-        url = f"https://www.instagram.com/{handle}/"
+        # Use Instagram's web profile info API endpoint
+        url = f"https://www.instagram.com/api/v1/users/web_profile_info/?username={handle}"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept': '*/*',
             'Accept-Language': 'en-US,en;q=0.5',
+            'X-IG-App-ID': '936619743392459',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Referer': f'https://www.instagram.com/{handle}/',
         }
 
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200:
             return None, f"Failed to fetch profile (status {response.status_code})"
 
-        html = response.text
-
-        # Look for og:image meta tag which contains the profile picture
-        import re
-        og_image_match = re.search(r'<meta property="og:image" content="([^"]+)"', html)
-        if og_image_match:
-            profile_pic_url = og_image_match.group(1).replace('&amp;', '&')
-            return profile_pic_url, None
-
-        # Alternative: look for profile_pic_url in the JSON data
-        json_match = re.search(r'"profile_pic_url_hd":"([^"]+)"', html)
-        if json_match:
-            profile_pic_url = json_match.group(1).replace('\\u0026', '&')
-            return profile_pic_url, None
-
-        return None, "Could not find profile picture in page"
+        try:
+            data = response.json()
+            user = data.get('data', {}).get('user', {})
+            profile_pic_url = user.get('profile_pic_url_hd') or user.get('profile_pic_url')
+            if profile_pic_url:
+                return profile_pic_url, None
+            return None, "Profile picture URL not found in response"
+        except Exception as e:
+            return None, f"Failed to parse response: {str(e)}"
 
     except requests.Timeout:
         return None, "Request timed out"
