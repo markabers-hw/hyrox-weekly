@@ -39,43 +39,36 @@ else:
     WEEK_END = datetime.now()
     WEEK_START = WEEK_END - timedelta(days=14)
 
-# RSS Feeds from fitness/Hyrox-related sites
+# RSS Feeds - Only sources that regularly cover Hyrox
 RSS_FEEDS = [
-    # Hyrox-specific
+    # Hyrox-specific (always check)
     {'name': 'Hyrox Official', 'url': 'https://hyrox.com/feed/', 'category': 'race_recap'},
-    
-    # CrossFit & Functional Fitness (high relevance to Hyrox)
+
+    # Functional Fitness sites that cover Hyrox regularly
     {'name': 'Morning Chalk Up', 'url': 'https://morningchalkup.com/feed/', 'category': 'training'},
     {'name': 'BoxRox', 'url': 'https://www.boxrox.com/feed/', 'category': 'training'},
-    {'name': 'The Rx Review', 'url': 'https://therxreview.com/feed/', 'category': 'training'},
-    {'name': 'BoxLife Magazine', 'url': 'https://boxlifemagazine.com/feed/', 'category': 'training'},
-    {'name': 'WODprep', 'url': 'https://wodprep.com/blog/feed/', 'category': 'training'},
-    
-    # General Fitness (may have Hyrox content)
-    {'name': 'Breaking Muscle', 'url': 'https://breakingmuscle.com/feed/', 'category': 'training'},
     {'name': 'BarBend', 'url': 'https://barbend.com/feed/', 'category': 'training'},
-    {'name': 'Muscle & Fitness', 'url': 'https://www.muscleandfitness.com/feed/', 'category': 'training'},
-    {'name': 'Mens Health Fitness', 'url': 'https://www.menshealth.com/fitness/feed/', 'category': 'training'},
-    {'name': 'Runners World', 'url': 'https://www.runnersworld.com/feed/', 'category': 'training'},
-    {'name': 'Nerd Fitness', 'url': 'https://www.nerdfitness.com/feed/', 'category': 'training'},
-    
-    # UK/European Fitness
+
+    # UK sites (Hyrox is popular in UK/Europe)
     {'name': 'Coach Mag', 'url': 'https://www.coachmag.co.uk/feed', 'category': 'training'},
-    {'name': 'Mens Fitness UK', 'url': 'https://mensfitness.co.uk/feed/', 'category': 'training'},
-    
-    # Endurance/Running (Hyrox has running component)
-    {'name': 'Trail Runner Magazine', 'url': 'https://www.trailrunnermag.com/feed/', 'category': 'training'},
-    {'name': 'Triathlete', 'url': 'https://www.triathlete.com/feed/', 'category': 'training'},
 ]
 
-HYROX_KEYWORDS = [
-    'hyrox', 'hybrid fitness', 'hybrid athlete', 'functional fitness race',
-    'hybrid race', 'hybrid racing', 'hybrid competition',
-    'ski erg', 'sled push', 'sled pull', 'wall balls', 'rowing workout',
-    'burpee broad jump', 'farmers carry', 'sandbag lunges',
-    'hunter mcintyre', 'lauren weeks', 'roxzone',
-    'lt games', 'lifetime games', 'deka fit', 'deka mile',
-    'hybrid letter', 'hybridletter',
+# Keywords for relevance matching - strict Hyrox focus
+# Primary keywords (strong signal)
+HYROX_PRIMARY_KEYWORDS = [
+    'hyrox',
+    'hybrid fitness race',
+    'hunter mcintyre',
+    'lauren weeks',
+    'roxzone',
+    'deka fit',
+    'deka mile',
+]
+
+# Secondary keywords (only count if combined with fitness context)
+HYROX_SECONDARY_KEYWORDS = [
+    'hybrid athlete',
+    'functional fitness race',
 ]
 
 
@@ -231,8 +224,21 @@ class ArticleDatabaseManager:
 
 
 def is_hyrox_relevant(article):
-    text = f"{article.get('title', '')} {article.get('description', '')} {article.get('source', '')}".lower()
-    return any(kw in text for kw in HYROX_KEYWORDS)
+    """Check if article is relevant to Hyrox - strict matching."""
+    text = f"{article.get('title', '')} {article.get('description', '')}".lower()
+
+    # Primary keywords are strong signals - any match is relevant
+    if any(kw in text for kw in HYROX_PRIMARY_KEYWORDS):
+        return True
+
+    # Secondary keywords need additional context
+    if any(kw in text for kw in HYROX_SECONDARY_KEYWORDS):
+        # Must also mention race/competition/training context
+        context_words = ['race', 'competition', 'training', 'workout', 'fitness']
+        if any(ctx in text for ctx in context_words):
+            return True
+
+    return False
 
 
 def get_priority_article_sources():
@@ -331,11 +337,12 @@ def main():
     
     priority_count = sum(1 for a in relevant if a.get('is_priority'))
     print(f"   {len(relevant)} Hyrox-relevant articles ({priority_count} from priority sources)")
-    
+
     if not relevant:
-        print("\n   No relevant articles found, using recent ones...")
-        relevant = recent[:15]
-    
+        print("\n   No Hyrox-relevant articles found this week.")
+        print("   (This is normal - not every week has Hyrox coverage)")
+        return
+
     print(f"\n💾 Saving {len(relevant)} articles...")
     db.connect()
     
