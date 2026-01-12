@@ -394,6 +394,75 @@ def fetch_and_store_athlete_image(instagram_handle, athlete_slug=None):
     return storage_url, None
 
 
+# ============================================================================
+# SPOTIFY PODCAST METADATA FETCHING
+# ============================================================================
+
+def fetch_spotify_episode_metadata(spotify_url):
+    """
+    Fetch metadata from a Spotify episode URL.
+    Returns dict with title, thumbnail_url, show_name, or error.
+    """
+    if not spotify_url or 'spotify.com' not in spotify_url:
+        return None, "Not a valid Spotify URL"
+
+    try:
+        # Use Spotify's oEmbed API for basic info
+        oembed_url = f"https://open.spotify.com/oembed?url={spotify_url}"
+        oembed_resp = requests.get(oembed_url, timeout=10)
+
+        if oembed_resp.status_code != 200:
+            return None, f"Failed to fetch from Spotify (status {oembed_resp.status_code})"
+
+        oembed_data = oembed_resp.json()
+        title = oembed_data.get('title', '')
+        thumbnail = oembed_data.get('thumbnail_url', '')
+
+        # Try to get show name from the episode page
+        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
+        page_resp = requests.get(spotify_url, headers=headers, timeout=10)
+
+        show_name = ''
+        if page_resp.status_code == 200:
+            import re
+            # Look for og:description which contains show name
+            og_desc = re.search(r'<meta property="og:description" content="([^"]+)"', page_resp.text)
+            if og_desc:
+                # Format is usually "Show Name · Episode" or similar
+                desc = og_desc.group(1)
+                if ' · ' in desc:
+                    show_name = desc.split(' · ')[0].strip()
+
+            # Get higher res thumbnail from og:image
+            og_image = re.search(r'<meta property="og:image" content="([^"]+)"', page_resp.text)
+            if og_image:
+                thumbnail = og_image.group(1)
+
+        return {
+            'title': title,
+            'thumbnail_url': thumbnail,
+            'show_name': show_name,
+            'spotify_url': spotify_url
+        }, None
+
+    except requests.Timeout:
+        return None, "Request timed out"
+    except Exception as e:
+        return None, f"Error: {str(e)}"
+
+
+def search_apple_podcasts(query, limit=5):
+    """Search Apple Podcasts for an episode."""
+    try:
+        search_url = f"https://itunes.apple.com/search?term={requests.utils.quote(query)}&entity=podcastEpisode&limit={limit}"
+        resp = requests.get(search_url, timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get('results', [])
+        return []
+    except:
+        return []
+
+
 def get_athletes(category_filter='all', active_only=True):
     """Get athletes from database"""
     params = "order=name"
@@ -3455,11 +3524,15 @@ def main():
                 key="manual_platform"
             )
             
+            # Get any fetched podcast data from session state
+            fetched_podcast = st.session_state.get('podcast_fetched', {}) if manual_platform == 'podcast' else {}
+
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 manual_url = st.text_input(
                     "URL",
+                    value=fetched_podcast.get('spotify_url', ''),
                     placeholder={
                         'article': "https://www.example.com/article-title",
                         'youtube': "https://www.youtube.com/watch?v=...",
@@ -3468,12 +3541,13 @@ def main():
                         'reddit': "https://www.reddit.com/r/hyrox/comments/..."
                     }.get(manual_platform, "https://...")
                 )
-                
+
                 manual_title = st.text_input(
                     "Title",
+                    value=fetched_podcast.get('title', ''),
                     placeholder="Title of the content"
                 )
-                
+
                 manual_creator = st.text_input(
                     {
                         'article': "Publication / Author",
@@ -3482,6 +3556,7 @@ def main():
                         'instagram': "Username",
                         'reddit': "Subreddit"
                     }.get(manual_platform, "Creator"),
+                    value=fetched_podcast.get('show_name', ''),
                     placeholder={
                         'article': "e.g., Red Bull, The Rx Review",
                         'youtube': "e.g., UKHXR, Hybrid Calisthenics",
@@ -3490,7 +3565,7 @@ def main():
                         'reddit': "e.g., r/hyrox"
                     }.get(manual_platform, "Creator name")
                 )
-            
+
             with col2:
                 # Publish date - default to today within selected week
                 manual_date = st.date_input(
@@ -3498,9 +3573,10 @@ def main():
                     value=datetime.now().date(),
                     help="When was this content published?"
                 )
-                
+
                 manual_thumbnail = st.text_input(
                     "Thumbnail URL (optional)",
+                    value=fetched_podcast.get('thumbnail_url', ''),
                     placeholder="https://..."
                 )
                 
@@ -3515,6 +3591,37 @@ def main():
                     manual_comments = 0
                     
                 elif manual_platform == 'podcast':
+                    # Spotify auto-fetch button
+                    fetch_col1, fetch_col2 = st.columns([3, 1])
+                    with fetch_col1:
+                        spotify_input = st.text_input(
+                            "Spotify URL",
+                            placeholder="https://open.spotify.com/episode/...",
+                            key="podcast_spotify_url"
+                        )
+                    with fetch_col2:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("🔍 Fetch", help="Auto-fill from Spotify URL"):
+                            if spotify_input and 'spotify.com' in spotify_input:
+                                with st.spinner("Fetching from Spotify..."):
+                                    metadata, error = fetch_spotify_episode_metadata(spotify_input)
+                                    if metadata:
+                                        st.session_state['podcast_fetched'] = metadata
+                                        st.success(f"✅ Fetched: {metadata['title'][:50]}...")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"Failed: {error}")
+                            else:
+                                st.warning("Enter a Spotify URL first")
+
+                    # Get fetched data from session state if available
+                    fetched = st.session_state.get('podcast_fetched', {})
+
+                    # Show fetched thumbnail if available
+                    if fetched.get('thumbnail_url'):
+                        st.image(fetched['thumbnail_url'], width=200)
+                        st.caption(f"🎙️ {fetched.get('show_name', 'Podcast')}")
+
                     mcol1, mcol2 = st.columns(2)
                     with mcol1:
                         manual_duration = st.number_input("Duration (minutes)", min_value=0, value=0)
@@ -3523,11 +3630,10 @@ def main():
                     manual_views = manual_listens
                     manual_likes = 0
                     manual_comments = 0
-                    
-                    # Spotify/Apple links
-                    st.caption("Add alternative listening links:")
-                    manual_spotify = st.text_input("Spotify URL (optional)", placeholder="https://open.spotify.com/episode/...")
+
+                    # Apple Podcasts link
                     manual_apple = st.text_input("Apple Podcasts URL (optional)", placeholder="https://podcasts.apple.com/...")
+                    manual_spotify = spotify_input  # Use the Spotify URL from above
                     
                 elif manual_platform == 'instagram':
                     mcol1, mcol2 = st.columns(2)
@@ -3646,6 +3752,9 @@ def main():
 
                             if result:
                                 clear_content_caches()
+                                # Clear podcast fetched data
+                                if 'podcast_fetched' in st.session_state:
+                                    del st.session_state['podcast_fetched']
                                 st.success(f"✅ Added: {manual_title[:50]}...")
                                 st.rerun()
                             else:
