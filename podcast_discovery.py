@@ -56,7 +56,11 @@ HYROX_SEARCH_TERMS = [
     "hyrox race",
     "hybrid fitness racing",
     "hyrox workout",
-    # Known Hyrox podcasts
+    # Known Hyrox podcasts - search by show name to ensure discovery
+    "Hybrid Coaching Podcast",
+    "Rox Lyfe Podcast",
+    "HYROX HEROES",
+    "TrainHybrd Podcast",
     "UKHXR",
     "fitness racing podcast",
     "hyrox review",
