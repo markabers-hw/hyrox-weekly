@@ -524,7 +524,9 @@ def get_content_counts_by_week(week_start=None, week_end=None):
     """Get content counts grouped by platform and status for a specific week"""
     params = 'select=platform,status'
     if week_start and week_end:
-        params += f'&discovered_date=gte.{week_start}&discovered_date=lte.{week_end}'
+        # Use published_date to match _get_content_impl filtering
+        end_date = week_end + timedelta(days=1) if hasattr(week_end, 'isoformat') else week_end
+        params += f'&published_date=gte.{week_start}&published_date=lt.{end_date}'
     content = supabase_get('content_items', params) or []
 
     # Build nested dict: {platform: {status: count, 'total': count}}
@@ -2127,31 +2129,25 @@ def render_content_item(item, display_tz):
 
             current_cat = item['category'] or 'other'
             cat_opts = [c[0] for c in CATEGORIES]
+            # Use session state key to track if we need to save
+            cat_key = f"cat_{item['id']}"
             new_cat = st.selectbox(
                 "Category",
                 options=cat_opts,
                 index=cat_opts.index(current_cat) if current_cat in cat_opts else 0,
                 format_func=lambda x: dict(CATEGORIES)[x],
-                key=f"cat_{item['id']}",
+                key=cat_key,
                 label_visibility="collapsed"
             )
-            if new_cat != current_cat:
-                update_content_category(item['id'], new_cat)
-                clear_content_caches()
+            # Only save when button is clicked to avoid refresh loops
+            if st.button("💾", key=f"save_cat_{item['id']}", help="Save category"):
+                if new_cat != current_cat:
+                    update_content_category(item['id'], new_cat)
+                    clear_content_caches()
+                    st.rerun()
 
-            # Display order
-            current_order = item.get('display_order') or 999
-            new_order = st.number_input(
-                "Order",
-                min_value=1,
-                max_value=99,
-                value=current_order if current_order < 999 else 1,
-                key=f"order_{item['id']}",
-                help="Lower numbers appear first (1 = first)"
-            )
-            if new_order != current_order:
-                update_content_display_order(item['id'], new_order)
-                clear_content_caches()
+            # Display order - removed auto-save to prevent refresh loops
+            # Order is now set via the bulk "Save Order" button in the main curation view
 
         # Expandable section for description editing with AI blurb
         with st.expander("✏️ Edit Description / AI Blurb", expanded=False):
@@ -2237,16 +2233,19 @@ def render_content_item(item, display_tz):
                 label_visibility="collapsed"
             )
 
-            if selected_desc != current_selection:
-                if selected_desc == "ai":
-                    update_content_use_ai_description(item['id'], True)
-                    update_content_custom_description(item['id'], None)
-                elif selected_desc == "custom":
-                    update_content_use_ai_description(item['id'], False)
-                else:  # original
-                    update_content_use_ai_description(item['id'], False)
-                    update_content_custom_description(item['id'], None)
-                st.rerun()
+            # Use button to save selection to avoid refresh loops
+            if st.button("💾 Save Description Choice", key=f"save_desc_choice_{item['id']}"):
+                if selected_desc != current_selection:
+                    if selected_desc == "ai":
+                        update_content_use_ai_description(item['id'], True)
+                        update_content_custom_description(item['id'], None)
+                    elif selected_desc == "custom":
+                        update_content_use_ai_description(item['id'], False)
+                    else:  # original
+                        update_content_use_ai_description(item['id'], False)
+                        update_content_custom_description(item['id'], None)
+                    st.success("Description choice saved!")
+                    st.rerun()
 
             st.markdown("**Preview (what will appear in newsletter):**")
             if selected_desc == "ai" and ai_desc:
