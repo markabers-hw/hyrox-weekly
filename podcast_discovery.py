@@ -45,8 +45,8 @@ if week_start_str and week_end_str:
     WEEK_START = datetime.fromisoformat(week_start_str)
     WEEK_END = datetime.fromisoformat(week_end_str) + timedelta(days=1)  # Include end day
 else:
-    # Default: past 14 days
-    WEEK_END = datetime.now()
+    # Default: past 14 days, extend end to include full current day
+    WEEK_END = datetime.now().replace(hour=23, minute=59, second=59)
     WEEK_START = WEEK_END - timedelta(days=14)
 
 # Search terms for finding Hyrox content
