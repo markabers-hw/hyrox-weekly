@@ -2483,9 +2483,11 @@ def render_athlete_card(athlete):
                         slug = athlete.get('slug') or new_name.lower().replace(' ', '-')
                         image_url, error = fetch_and_store_athlete_image(new_handle, slug)
                         if image_url:
-                            update_athlete(athlete['id'], profile_image_url=image_url)
-                            st.success(f"Profile image fetched and saved!")
-                            st.rerun()
+                            if update_athlete(athlete['id'], profile_image_url=image_url):
+                                st.success(f"✅ Image saved! Click any expander to refresh the page.")
+                                st.code(image_url, language=None)
+                            else:
+                                st.error("Failed to save to database")
                         else:
                             st.error(f"Failed: {error}")
                 else:
