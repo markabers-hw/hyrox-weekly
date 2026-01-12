@@ -423,6 +423,7 @@ def fetch_spotify_episode_metadata(spotify_url):
         page_resp = requests.get(spotify_url, headers=headers, timeout=10)
 
         show_name = ''
+        duration_minutes = 0
         if page_resp.status_code == 200:
             import re
             # Look for og:description which contains show name
@@ -438,11 +439,17 @@ def fetch_spotify_episode_metadata(spotify_url):
             if og_image:
                 thumbnail = og_image.group(1)
 
+            # Try to get duration from page (look for "XX min" pattern)
+            duration_match = re.search(r'(\d+)\s*min', page_resp.text)
+            if duration_match:
+                duration_minutes = int(duration_match.group(1))
+
         return {
             'title': title,
             'thumbnail_url': thumbnail,
             'show_name': show_name,
-            'spotify_url': spotify_url
+            'spotify_url': spotify_url,
+            'duration_minutes': duration_minutes
         }, None
 
     except requests.Timeout:
@@ -3620,11 +3627,12 @@ def main():
                     # Show fetched thumbnail if available
                     if fetched.get('thumbnail_url'):
                         st.image(fetched['thumbnail_url'], width=200)
-                        st.caption(f"🎙️ {fetched.get('show_name', 'Podcast')}")
+                        duration_display = f" • {fetched.get('duration_minutes', 0)} min" if fetched.get('duration_minutes') else ""
+                        st.caption(f"🎙️ {fetched.get('show_name', 'Podcast')}{duration_display}")
 
                     mcol1, mcol2 = st.columns(2)
                     with mcol1:
-                        manual_duration = st.number_input("Duration (minutes)", min_value=0, value=0)
+                        manual_duration = st.number_input("Duration (minutes)", min_value=0, value=fetched.get('duration_minutes', 0))
                     with mcol2:
                         manual_listens = st.number_input("Listens (optional)", min_value=0, value=0)
                     manual_views = manual_listens
@@ -3688,6 +3696,7 @@ def main():
                 options=['selected', 'discovered'],
                 format_func=lambda x: '✅ Selected (ready for newsletter)' if x == 'selected' else '📥 To Review (needs curation)',
                 horizontal=True,
+                key="manual_content_status",
                 help="Selected = ready to include in newsletter. To Review = will appear in curation queue."
             )
             
