@@ -424,8 +424,11 @@ def fetch_spotify_episode_metadata(spotify_url):
 
         show_name = ''
         duration_minutes = 0
+        description = ''
         if page_resp.status_code == 200:
             import re
+            import json as json_module
+
             # Look for og:description which contains show name
             og_desc = re.search(r'<meta property="og:description" content="([^"]+)"', page_resp.text)
             if og_desc:
@@ -444,12 +447,29 @@ def fetch_spotify_episode_metadata(spotify_url):
             if duration_match:
                 duration_minutes = int(duration_match.group(1))
 
+            # Extract episode description from JSON-LD data
+            json_ld_match = re.search(r'<script type="application/ld\+json">([^<]+)</script>', page_resp.text)
+            if json_ld_match:
+                try:
+                    ld_data = json_module.loads(json_ld_match.group(1))
+                    if isinstance(ld_data, dict):
+                        description = ld_data.get('description', '')
+                except:
+                    pass
+
+            # Fallback: try twitter:description meta tag
+            if not description:
+                twitter_desc = re.search(r'<meta name="twitter:description" content="([^"]+)"', page_resp.text)
+                if twitter_desc:
+                    description = twitter_desc.group(1)
+
         return {
             'title': title,
             'thumbnail_url': thumbnail,
             'show_name': show_name,
             'spotify_url': spotify_url,
-            'duration_minutes': duration_minutes
+            'duration_minutes': duration_minutes,
+            'description': description
         }, None
 
     except requests.Timeout:
@@ -3629,6 +3649,8 @@ def main():
                         st.image(fetched['thumbnail_url'], width=200)
                         duration_display = f" • {fetched.get('duration_minutes', 0)} min" if fetched.get('duration_minutes') else ""
                         st.caption(f"🎙️ {fetched.get('show_name', 'Podcast')}{duration_display}")
+                        if fetched.get('description'):
+                            st.caption(f"📝 Description fetched ({len(fetched['description'])} chars)")
 
                     mcol1, mcol2 = st.columns(2)
                     with mcol1:
@@ -3670,6 +3692,7 @@ def main():
             
             manual_description = st.text_area(
                 "Description (optional)",
+                value=fetched_podcast.get('description', ''),
                 placeholder="Brief description or summary of the content...",
                 height=80
             )
