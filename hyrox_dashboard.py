@@ -2440,7 +2440,7 @@ def render_athlete_card(athlete):
                 handle = athlete['instagram_handle'].replace('@', '')
                 st.markdown(f"[@{athlete['instagram_handle']}](https://instagram.com/{handle})")
             st.caption(f"🌍 {athlete['country'] or 'Unknown'} • {'🏆 Elite' if athlete.get('tier') == 'elite' else '📱 Influencer'}")
-            st.caption(f"Featured {athlete['featured_count'] or 0} times | Last: {athlete['last_featured_date'] or 'Never'}")
+            st.caption(f"Featured {athlete.get('featured_count') or 0} times | Last: {athlete.get('last_featured_date') or 'Never'}")
 
         st.markdown("---")
 
