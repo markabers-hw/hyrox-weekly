@@ -41,16 +41,15 @@ else:
 
 # RSS Feeds - Only sources that regularly cover Hyrox
 RSS_FEEDS = [
+    # Google News aggregates Hyrox articles from ALL sources - this is the main discovery source
+    {'name': 'Google News - Hyrox', 'url': 'https://news.google.com/rss/search?q=hyrox&hl=en-US&gl=US&ceid=US:en', 'category': 'other', 'skip_relevance_check': True},
+
     # Hyrox-specific (always check)
     {'name': 'Hyrox Official', 'url': 'https://hyrox.com/feed/', 'category': 'race_recap'},
 
     # Functional Fitness sites that cover Hyrox regularly
     {'name': 'Morning Chalk Up', 'url': 'https://morningchalkup.com/feed/', 'category': 'training'},
-    {'name': 'BoxRox', 'url': 'https://www.boxrox.com/feed/', 'category': 'training'},
     {'name': 'BarBend', 'url': 'https://barbend.com/feed/', 'category': 'training'},
-
-    # UK sites (Hyrox is popular in UK/Europe)
-    {'name': 'Coach Mag', 'url': 'https://www.coachmag.co.uk/feed', 'category': 'training'},
 ]
 
 # Keywords for relevance matching - strict Hyrox focus
@@ -313,6 +312,7 @@ def main():
         for a in articles:
             a['default_category'] = feed.get('category', 'other')
             a['is_priority'] = is_priority  # Mark articles from priority sources
+            a['skip_relevance_check'] = feed.get('skip_relevance_check', False)  # Google News already filtered
         all_articles.extend(articles)
         time.sleep(0.3)
     
@@ -327,16 +327,19 @@ def main():
     recent = [a for a in unique if WEEK_START <= a.get('published_date', datetime.now()) <= WEEK_END]
     print(f"   {len(recent)} from selected week")
     
-    # Filter relevant - BUT priority sources bypass this filter
+    # Filter relevant - some sources bypass relevance check
     relevant = []
     for a in recent:
         if a.get('is_priority'):
             relevant.append(a)  # Priority sources always included
+        elif a.get('skip_relevance_check'):
+            relevant.append(a)  # Google News already searched for "hyrox"
         elif 'hyrox' in a.get('source', '').lower() or is_hyrox_relevant(a):
             relevant.append(a)
     
     priority_count = sum(1 for a in relevant if a.get('is_priority'))
-    print(f"   {len(relevant)} Hyrox-relevant articles ({priority_count} from priority sources)")
+    google_news_count = sum(1 for a in relevant if a.get('skip_relevance_check'))
+    print(f"   {len(relevant)} Hyrox-relevant articles ({google_news_count} from Google News, {priority_count} from priority sources)")
 
     if not relevant:
         print("\n   No Hyrox-relevant articles found this week.")
