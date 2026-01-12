@@ -17,6 +17,14 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
+# Google News URL decoder
+try:
+    from googlenewsdecoder import new_decoderv1
+    HAS_GNEWS_DECODER = True
+except ImportError:
+    HAS_GNEWS_DECODER = False
+    print("   ⚠️ googlenewsdecoder not installed - Google News URLs won't be decoded")
+
 load_dotenv()
 
 DB_CONFIG = {
@@ -77,6 +85,21 @@ HYROX_SECONDARY_KEYWORDS = [
     'hybrid athlete',
     'functional fitness race',
 ]
+
+
+def decode_google_news_url(url):
+    """Decode a Google News URL to get the actual article URL."""
+    if not HAS_GNEWS_DECODER:
+        return url
+    if 'news.google.com' not in url:
+        return url
+    try:
+        result = new_decoderv1(url)
+        if result.get('status') and result.get('decoded_url'):
+            return result['decoded_url']
+    except Exception as e:
+        pass
+    return url
 
 
 class ArticleDiscovery:
@@ -241,15 +264,31 @@ class ArticleDatabaseManager:
         if not result:
             return None, False
         thumbnail = result.get('thumbnail_url') or ''
-        # Needs update only if no thumbnail at all
-        # Note: Google News provides hosted thumbnails which are acceptable
-        needs_update = not thumbnail
+        # Needs update if no thumbnail or has Google placeholder thumbnail
+        is_google_placeholder = 'lh3.googleusercontent.com' in thumbnail
+        needs_update = not thumbnail or is_google_placeholder
         return result['id'], needs_update
 
     def update_thumbnail(self, article_id, thumbnail_url):
         """Update thumbnail for existing article."""
         self.cursor.execute("UPDATE content_items SET thumbnail_url = %s WHERE id = %s", (thumbnail_url, article_id))
         self.conn.commit()
+
+    def update_article_url_and_thumbnail(self, article_id, new_url, thumbnail_url):
+        """Update both URL and thumbnail for existing article."""
+        self.cursor.execute(
+            "UPDATE content_items SET url = %s, thumbnail_url = %s WHERE id = %s",
+            (new_url, thumbnail_url, article_id)
+        )
+        self.conn.commit()
+
+    def get_articles_with_google_urls(self):
+        """Get articles that still have Google News URLs."""
+        self.cursor.execute("""
+            SELECT id, url, title FROM content_items
+            WHERE platform = 'article' AND url LIKE '%news.google.com%'
+        """)
+        return self.cursor.fetchall()
     
     def save_article(self, article, creator_id, category='other'):
         cols = ['title', 'url', 'platform', 'creator_id', 'status']
@@ -394,6 +433,17 @@ def main():
         return
 
     print(f"\n💾 Saving {len(relevant)} articles...")
+
+    # Decode Google News URLs to get actual article URLs
+    if HAS_GNEWS_DECODER:
+        print("   🔗 Decoding Google News URLs...")
+        for article in relevant:
+            if 'news.google.com' in article.get('url', ''):
+                decoded = decode_google_news_url(article['url'])
+                if decoded != article['url']:
+                    article['original_url'] = article['url']
+                    article['url'] = decoded
+
     db.connect()
 
     saved, skipped, updated = 0, 0, 0
@@ -417,9 +467,8 @@ def main():
 
         creator_id = db.get_or_create_creator(article['source'])
 
-        # Always fetch thumbnail from article page for Google News (RSS returns placeholder)
-        # Also fetch if no thumbnail exists
-        if article.get('skip_relevance_check') or not article.get('thumbnail_url'):
+        # Fetch thumbnail from article page
+        if not article.get('thumbnail_url'):
             print(f"      Fetching thumbnail for: {article['title'][:40]}...")
             article['thumbnail_url'] = discovery.extract_thumbnail(article['url'])
 
@@ -435,6 +484,45 @@ def main():
     print("\n" + "=" * 70)
     print(f"Article discovery complete! Saved: {saved}, Updated: {updated}, Skipped: {skipped}")
     print("=" * 70)
+
+    # Fix existing articles with Google News URLs
+    if HAS_GNEWS_DECODER:
+        print("\n🔧 Checking for existing articles with Google News URLs...")
+        db.connect()
+        google_articles = db.get_articles_with_google_urls()
+
+        if google_articles:
+            print(f"   Found {len(google_articles)} articles with Google News URLs to fix")
+            fixed, deleted = 0, 0
+            for article in google_articles:
+                try:
+                    decoded_url = decode_google_news_url(article['url'])
+                    if decoded_url != article['url']:
+                        # Check if the decoded URL already exists (duplicate)
+                        db.cursor.execute("SELECT id FROM content_items WHERE url = %s", (decoded_url,))
+                        existing = db.cursor.fetchone()
+
+                        if existing:
+                            # Delete the old Google News version (keep the new one)
+                            db.cursor.execute("DELETE FROM content_items WHERE id = %s", (article['id'],))
+                            db.conn.commit()
+                            deleted += 1
+                        else:
+                            # Update the old article with decoded URL and thumbnail
+                            thumbnail = discovery.extract_thumbnail(decoded_url)
+                            if thumbnail:
+                                db.update_article_url_and_thumbnail(article['id'], decoded_url, thumbnail)
+                                fixed += 1
+                                print(f"   ✅ Fixed: {article['title'][:50]}...")
+                except Exception as e:
+                    db.conn.rollback()  # Rollback on error
+                    print(f"   ❌ Error fixing {article['title'][:30]}: {e}")
+
+            print(f"   Fixed {fixed} articles, deleted {deleted} duplicates")
+        else:
+            print("   No articles with Google News URLs found")
+
+        db.close()
 
 
 if __name__ == "__main__":
