@@ -526,11 +526,18 @@ def get_content_counts_by_week(week_start=None, week_end=None):
     if week_start and week_end:
         params += f'&discovered_date=gte.{week_start}&discovered_date=lte.{week_end}'
     content = supabase_get('content_items', params) or []
+
+    # Build nested dict: {platform: {status: count, 'total': count}}
     counts = {}
     for item in content:
-        key = (item.get('platform', 'unknown'), item.get('status', 'unknown'))
-        counts[key] = counts.get(key, 0) + 1
-    return [{'platform': k[0], 'status': k[1], 'count': v} for k, v in counts.items()]
+        platform = item.get('platform', 'unknown')
+        status = item.get('status', 'unknown')
+        if platform not in counts:
+            counts[platform] = {'discovered': 0, 'selected': 0, 'rejected': 0, 'published': 0, 'total': 0}
+        counts[platform][status] = counts[platform].get(status, 0) + 1
+        counts[platform]['total'] += 1
+
+    return counts
 
 
 @st.cache_data(ttl=300)
