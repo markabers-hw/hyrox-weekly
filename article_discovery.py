@@ -43,13 +43,18 @@ else:
 # Note: Google News is great for discovery but provides generic placeholder thumbnails.
 # Direct RSS feeds provide proper article thumbnails.
 RSS_FEEDS = [
-    # Direct RSS feeds first (these have proper thumbnails)
+    # Hyrox-dedicated sources (best coverage, proper thumbnails)
     {'name': 'Hyrox Official', 'url': 'https://hyrox.com/feed/', 'category': 'race_recap'},
+    {'name': 'Hybrid Fitness Media', 'url': 'https://hybridfitnessmedia.com/feed/', 'category': 'training'},
+
+    # Functional fitness sites that cover Hyrox
     {'name': 'Morning Chalk Up', 'url': 'https://morningchalkup.com/feed/', 'category': 'training'},
     {'name': 'BarBend', 'url': 'https://barbend.com/feed/', 'category': 'training'},
 
+    # General fitness sites with Hyrox coverage
+    {'name': 'Fit and Well', 'url': 'https://www.fitandwell.com/feeds/all', 'category': 'training'},
+
     # Google News aggregates from all sources - wide discovery but generic thumbnails
-    # TODO: Thumbnails from Google News are placeholders. Consider adding more direct RSS feeds.
     {'name': 'Google News - Hyrox', 'url': 'https://news.google.com/rss/search?q=hyrox&hl=en-US&gl=US&ceid=US:en', 'category': 'other', 'skip_relevance_check': True},
 ]
 
@@ -58,9 +63,11 @@ RSS_FEEDS = [
 HYROX_PRIMARY_KEYWORDS = [
     'hyrox',
     'hybrid fitness race',
+    'hybrid fitness media',
     'hunter mcintyre',
     'lauren weeks',
     'roxzone',
+    'rox lyfe',
     'deka fit',
     'deka mile',
 ]
