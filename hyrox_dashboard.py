@@ -416,22 +416,17 @@ def get_athlete_by_id(athlete_id):
     return supabase_get('athletes', f'id=eq.{athlete_id}', single=True)
 
 
-def add_athlete(name, instagram_handle, instagram_url=None, bio=None, category='elite', country=None, achievements=None, profile_image_url=None, website=None):
+def add_athlete(name, instagram_handle, bio=None, tier='elite', country=None, achievements=None, profile_image_url=None, website_url=None):
     """Add a new athlete to database"""
-    if not instagram_url and instagram_handle:
-        handle = instagram_handle.replace('@', '')
-        instagram_url = f"https://instagram.com/{handle}"
-
     data = {
         'name': name,
         'instagram_handle': instagram_handle,
-        'instagram_url': instagram_url,
         'bio': bio,
-        'category': category,
+        'tier': tier,
         'country': country,
         'achievements': achievements,
         'profile_image_url': profile_image_url,
-        'website': website
+        'website_url': website_url
     }
     result = supabase_post('athletes', data)
     return result.get('id') if result else None
@@ -439,7 +434,7 @@ def add_athlete(name, instagram_handle, instagram_url=None, bio=None, category='
 
 def update_athlete(athlete_id, **kwargs):
     """Update an athlete's information"""
-    allowed_fields = ['name', 'instagram_handle', 'instagram_url', 'bio', 'category', 'country', 'achievements', 'profile_image_url', 'is_active', 'website']
+    allowed_fields = ['name', 'instagram_handle', 'bio', 'tier', 'country', 'achievements', 'profile_image_url', 'is_active', 'website_url']
     data = {k: v for k, v in kwargs.items() if k in allowed_fields}
     if not data:
         return False
@@ -539,7 +534,7 @@ def seed_initial_athletes():
         result = add_athlete(
             name=athlete["name"],
             instagram_handle=athlete["instagram_handle"],
-            category=athlete.get("category", "elite"),
+            tier=athlete.get("tier", "elite"),
             country=athlete.get("country"),
             achievements=athlete.get("achievements"),
             bio=athlete.get("bio")
@@ -2428,7 +2423,7 @@ def render_content_item(item, display_tz):
 @st.fragment
 def render_athlete_card(athlete):
     """Render a single athlete card as a fragment - reruns independently on interaction"""
-    with st.expander(f"{'🏆' if athlete['category'] == 'elite' else '📱'} {athlete['name']} (@{athlete['instagram_handle'] or 'N/A'})" + (" 🚫" if not athlete['is_active'] else "")):
+    with st.expander(f"{'🏆' if athlete.get('tier') == 'elite' else '📱'} {athlete['name']} (@{athlete['instagram_handle'] or 'N/A'})" + (" 🚫" if not athlete.get('is_active') else "")):
         # Top row with thumbnail and basic info
         top_col1, top_col2 = st.columns([1, 4])
 
@@ -2442,8 +2437,9 @@ def render_athlete_card(athlete):
         with top_col2:
             st.markdown(f"**{athlete['name']}**")
             if athlete['instagram_handle']:
-                st.markdown(f"[@{athlete['instagram_handle']}]({athlete['instagram_url']})")
-            st.caption(f"🌍 {athlete['country'] or 'Unknown'} • {'🏆 Elite' if athlete['category'] == 'elite' else '📱 Influencer'}")
+                handle = athlete['instagram_handle'].replace('@', '')
+                st.markdown(f"[@{athlete['instagram_handle']}](https://instagram.com/{handle})")
+            st.caption(f"🌍 {athlete['country'] or 'Unknown'} • {'🏆 Elite' if athlete.get('tier') == 'elite' else '📱 Influencer'}")
             st.caption(f"Featured {athlete['featured_count'] or 0} times | Last: {athlete['last_featured_date'] or 'Never'}")
 
         st.markdown("---")
@@ -2457,21 +2453,23 @@ def render_athlete_card(athlete):
             with row1_col2:
                 new_handle = st.text_input("Instagram Handle", value=athlete['instagram_handle'] or '', key=f"handle_{athlete['id']}")
             with row1_col3:
-                new_instagram_url = st.text_input("Instagram URL", value=athlete['instagram_url'] or '', key=f"igurl_{athlete['id']}")
+                # Generate Instagram URL from handle
+                default_ig_url = f"https://instagram.com/{athlete['instagram_handle'].replace('@', '')}" if athlete.get('instagram_handle') else ''
+                new_instagram_url = st.text_input("Instagram URL", value=default_ig_url, key=f"igurl_{athlete['id']}")
 
             # Row 2: Country, Category, Website
             row2_col1, row2_col2, row2_col3 = st.columns(3)
             with row2_col1:
                 new_country = st.text_input("Country", value=athlete['country'] or '', key=f"country_{athlete['id']}")
             with row2_col2:
-                new_category = st.selectbox(
-                    "Category",
+                new_tier = st.selectbox(
+                    "Tier",
                     options=['elite', 'influencer'],
-                    index=0 if athlete['category'] == 'elite' else 1,
-                    key=f"cat_{athlete['id']}"
+                    index=0 if athlete.get('tier') == 'elite' else 1,
+                    key=f"tier_{athlete['id']}"
                 )
             with row2_col3:
-                new_website = st.text_input("Website", value=athlete.get('website') or '', key=f"web_{athlete['id']}")
+                new_website = st.text_input("Website", value=athlete.get('website_url') or '', key=f"web_{athlete['id']}")
 
             # Row 3: Profile Image URL with fetch button
             img_col1, img_col2 = st.columns([3, 1])
@@ -2518,8 +2516,8 @@ def render_athlete_card(athlete):
                         instagram_handle=new_handle,
                         instagram_url=final_instagram_url,
                         country=new_country,
-                        category=new_category,
-                        website=new_website,
+                        tier=new_tier,
+                        website_url=new_website,
                         profile_image_url=new_profile_image,
                         bio=new_bio,
                         achievements=new_achievements,
@@ -2549,10 +2547,11 @@ def render_spotlight_athlete(athlete):
 
         st.markdown(f"**{athlete['name']}**")
         if athlete['instagram_handle']:
-            st.markdown(f"[@{athlete['instagram_handle']}]({athlete['instagram_url']})")
+            handle = athlete['instagram_handle'].replace('@', '')
+            st.markdown(f"[@{athlete['instagram_handle']}](https://instagram.com/{handle})")
         st.caption(f"🌍 {athlete['country'] or 'Unknown'}")
-        if athlete.get('website'):
-            st.caption(f"[🌐 Website]({athlete['website']})")
+        if athlete.get('website_url'):
+            st.caption(f"[🌐 Website]({athlete['website_url']})")
         st.caption(athlete['bio'][:80] + '...' if athlete['bio'] and len(athlete['bio']) > 80 else athlete['bio'] or '')
 
         if st.button("⭐ Mark Featured", key=f"feature_{athlete['id']}", use_container_width=True):
@@ -4013,12 +4012,12 @@ def main():
                         athlete_id = add_athlete(
                             name=name,
                             instagram_handle=instagram_handle,
-                            category=category,
+                            tier=category,
                             country=country,
                             bio=bio,
                             achievements=achievements,
                             profile_image_url=profile_image_url,
-                            website=website
+                            website_url=website
                         )
                         if athlete_id:
                             st.success(f"Added {name}!")
