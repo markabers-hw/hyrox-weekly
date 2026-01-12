@@ -143,22 +143,29 @@ class ArticleDiscovery:
                 link_elem = item.find('{http://www.w3.org/2005/Atom}link')
                 if link_elem is not None:
                     link = link_elem.get('href', '')
-            
+
             description = self._get_text(item, 'description') or self._get_text(item, '{http://www.w3.org/2005/Atom}summary')
             pub_date = self._get_text(item, 'pubDate') or self._get_text(item, '{http://www.w3.org/2005/Atom}published')
-            
+
+            # Extract source name from <source> element (used by Google News)
+            source_elem = item.find('source')
+            if source_elem is not None and source_elem.text:
+                source_name = source_elem.text
+            else:
+                source_name = feed_name
+
             thumbnail = ''
             media = item.find('.//{http://search.yahoo.com/mrss/}content')
             if media is not None:
                 thumbnail = media.get('url', '')
-            
+
             if title and link:
                 return {
                     'title': self._clean_text(title),
                     'url': link,
                     'description': self._clean_text(description)[:500] if description else '',
                     'published_date': self._parse_date(pub_date),
-                    'source': feed_name,
+                    'source': source_name,
                     'thumbnail_url': thumbnail,
                     'platform': 'article',
                 }
