@@ -1237,6 +1237,46 @@ def update_topic_search_terms(topic_id, search_terms):
     return supabase_patch('performance_topics', f'id=eq.{topic_id}', {'search_terms': search_terms})
 
 
+def clear_athlete_content(athlete_id, platforms=None):
+    """Clear athlete_content links for an athlete, optionally filtered by platform."""
+    if platforms is None or 'all' in platforms:
+        # Clear all content links for this athlete
+        items = supabase_get('athlete_content',
+            f'athlete_id=eq.{athlete_id}&select=id') or []
+    else:
+        # Clear only specific platforms
+        items = supabase_get('athlete_content',
+            f'athlete_id=eq.{athlete_id}&select=id,content_items(platform)') or []
+        items = [i for i in items if i.get('content_items', {}).get('platform') in platforms]
+
+    count = 0
+    for item in items:
+        supabase_delete('athlete_content', f'id=eq.{item["id"]}')
+        count += 1
+
+    return count
+
+
+def clear_topic_content(topic_id, platforms=None):
+    """Clear performance_content links for a topic, optionally filtered by platform."""
+    if platforms is None or 'all' in platforms:
+        # Clear all content links for this topic
+        items = supabase_get('performance_content',
+            f'topic_id=eq.{topic_id}&select=id') or []
+    else:
+        # Clear only specific platforms
+        items = supabase_get('performance_content',
+            f'topic_id=eq.{topic_id}&select=id,content_items(platform)') or []
+        items = [i for i in items if i.get('content_items', {}).get('platform') in platforms]
+
+    count = 0
+    for item in items:
+        supabase_delete('performance_content', f'id=eq.{item["id"]}')
+        count += 1
+
+    return count
+
+
 # ============================================================================
 # NEWSLETTER GENERATION
 # ============================================================================
@@ -4522,6 +4562,39 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                         st.error("Discovery failed")
                                     st.rerun()
 
+                        # Clear & Rediscover section
+                        with st.expander("🗑️ Clear & Rediscover", expanded=False):
+                            st.caption("Clear existing content and run fresh discovery")
+                            clear_col1, clear_col2, clear_col3 = st.columns(3)
+
+                            with clear_col1:
+                                clear_platforms = st.multiselect(
+                                    "Platforms to clear",
+                                    options=['youtube', 'podcast', 'article'],
+                                    default=['youtube', 'podcast', 'article'],
+                                    format_func=lambda x: {'youtube': '▶️ YouTube', 'podcast': '🎙️ Podcasts', 'article': '📰 Articles'}.get(x, x),
+                                    key=f"clear_plat_{athlete_id}"
+                                )
+
+                            with clear_col2:
+                                if st.button("🗑️ Clear Selected", key=f"clear_{athlete_id}", use_container_width=True):
+                                    with st.spinner("Clearing content..."):
+                                        count = clear_athlete_content(athlete_id, clear_platforms)
+                                        st.success(f"Cleared {count} items")
+                                        st.rerun()
+
+                            with clear_col3:
+                                if st.button("🔄 Clear & Rediscover All", key=f"clear_rediscover_{athlete_id}", type="secondary", use_container_width=True):
+                                    with st.spinner("Clearing and rediscovering..."):
+                                        count = clear_athlete_content(athlete_id, ['all'])
+                                        st.info(f"Cleared {count} items")
+                                        success, output, found, saved = run_premium_discovery('athlete', athlete_id, 'all')
+                                        if success:
+                                            st.success(f"Rediscovered: Found {found}, saved {saved}")
+                                        else:
+                                            st.error("Discovery failed")
+                                        st.rerun()
+
                         # =================== CONTENT STATUS SUMMARY ===================
                         # Get all content for this athlete (all statuses)
                         all_athlete_content = supabase_get('athlete_content',
@@ -4952,6 +5025,39 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                     else:
                                         st.error("Discovery failed")
                                     st.rerun()
+
+                        # Clear & Rediscover section
+                        with st.expander("🗑️ Clear & Rediscover", expanded=False):
+                            st.caption("Clear existing content and run fresh discovery")
+                            clear_col1, clear_col2, clear_col3 = st.columns(3)
+
+                            with clear_col1:
+                                tclear_platforms = st.multiselect(
+                                    "Platforms to clear",
+                                    options=['youtube', 'podcast', 'article', 'reddit'],
+                                    default=['youtube', 'podcast', 'article', 'reddit'],
+                                    format_func=lambda x: {'youtube': '▶️ YouTube', 'podcast': '🎙️ Podcasts', 'article': '📰 Articles', 'reddit': '💬 Reddit'}.get(x, x),
+                                    key=f"tclear_plat_{topic_id}"
+                                )
+
+                            with clear_col2:
+                                if st.button("🗑️ Clear Selected", key=f"tclear_{topic_id}", use_container_width=True):
+                                    with st.spinner("Clearing content..."):
+                                        count = clear_topic_content(topic_id, tclear_platforms)
+                                        st.success(f"Cleared {count} items")
+                                        st.rerun()
+
+                            with clear_col3:
+                                if st.button("🔄 Clear & Rediscover All", key=f"tclear_rediscover_{topic_id}", type="secondary", use_container_width=True):
+                                    with st.spinner("Clearing and rediscovering..."):
+                                        count = clear_topic_content(topic_id, ['all'])
+                                        st.info(f"Cleared {count} items")
+                                        success, output, found, saved = run_premium_discovery('topic', topic_id, 'all')
+                                        if success:
+                                            st.success(f"Rediscovered: Found {found}, saved {saved}")
+                                        else:
+                                            st.error("Discovery failed")
+                                        st.rerun()
 
                         # =================== CONTENT STATUS SUMMARY ===================
                         # Get all content for this topic (all statuses)
