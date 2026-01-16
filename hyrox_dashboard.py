@@ -1206,13 +1206,13 @@ def get_premium_discovery_history(entity_type, entity_id, limit=10):
 
 def get_athlete_discovered_content(athlete_id, status='discovered'):
     """Get content linked to an athlete with specified status"""
-    query = f'athlete_id=eq.{athlete_id}&status=eq.{status}&select=id,display_order,content_type,status,content_id,content_items(id,title,platform,url,thumbnail_url,description,view_count,published_date,duration_seconds)&order=added_at.desc'
+    query = f'athlete_id=eq.{athlete_id}&status=eq.{status}&select=id,display_order,content_type,status,content_id,content_items(id,title,platform,url,thumbnail_url,description,ai_description,view_count,published_date,duration_seconds)&order=added_at.desc'
     return supabase_get('athlete_content', query) or []
 
 
 def get_topic_discovered_content(topic_id, status='discovered'):
     """Get content linked to a topic with specified status"""
-    query = f'topic_id=eq.{topic_id}&status=eq.{status}&select=id,display_order,status,content_id,content_items(id,title,platform,url,thumbnail_url,description,view_count,published_date,duration_seconds)&order=added_at.desc'
+    query = f'topic_id=eq.{topic_id}&status=eq.{status}&select=id,display_order,status,content_id,content_items(id,title,platform,url,thumbnail_url,description,ai_description,view_count,published_date,duration_seconds)&order=added_at.desc'
     return supabase_get('performance_content', query) or []
 
 
@@ -4522,53 +4522,122 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                         st.error("Discovery failed")
                                     st.rerun()
 
-                        # Discovered content (pending curation)
+                        # =================== CONTENT STATUS SUMMARY ===================
+                        # Get all content for this athlete (all statuses)
+                        all_athlete_content = supabase_get('athlete_content',
+                            f'athlete_id=eq.{athlete_id}&select=id,status,content_id,content_items(id,platform)') or []
+
+                        # Build status counts by platform
+                        status_counts = {}
+                        for item in all_athlete_content:
+                            content = item.get('content_items', {})
+                            platform = content.get('platform', 'other') if content else 'other'
+                            status = item.get('status', 'discovered')
+                            if platform not in status_counts:
+                                status_counts[platform] = {'discovered': 0, 'selected': 0, 'rejected': 0}
+                            if status in status_counts[platform]:
+                                status_counts[platform][status] += 1
+
+                        if status_counts:
+                            st.markdown("#### 📊 Content Summary")
+                            # Create summary table
+                            summary_data = []
+                            for platform in ['youtube', 'podcast', 'article', 'reddit']:
+                                if platform in status_counts:
+                                    counts = status_counts[platform]
+                                    emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(platform, '🔗')
+                                    summary_data.append({
+                                        'Platform': f"{emoji} {platform.title()}",
+                                        'To Review': counts.get('discovered', 0),
+                                        'Selected': counts.get('selected', 0),
+                                        'Rejected': counts.get('rejected', 0)
+                                    })
+                            if summary_data:
+                                import pandas as pd
+                                df = pd.DataFrame(summary_data)
+                                # Add totals row
+                                totals = {
+                                    'Platform': '**Total**',
+                                    'To Review': df['To Review'].sum(),
+                                    'Selected': df['Selected'].sum(),
+                                    'Rejected': df['Rejected'].sum()
+                                }
+                                df = pd.concat([df, pd.DataFrame([totals])], ignore_index=True)
+                                st.dataframe(df, hide_index=True, use_container_width=True)
+
+                        # =================== DISCOVERED CONTENT (TO REVIEW) ===================
+                        st.markdown("---")
+                        st.markdown("### 📥 To Review")
+
+                        # Platform filter
+                        filter_col1, filter_col2 = st.columns([2, 4])
+                        with filter_col1:
+                            platform_filter = st.selectbox(
+                                "Filter by Platform",
+                                options=['all', 'youtube', 'podcast', 'article', 'reddit'],
+                                format_func=lambda x: 'All Platforms' if x == 'all' else f"{'▶️' if x=='youtube' else '🎙️' if x=='podcast' else '📄' if x=='article' else '💬'} {x.title()}",
+                                key=f"ath_platform_filter_{athlete_id}"
+                            )
+
+                        # Fetch discovered content
                         discovered_content = get_athlete_discovered_content(athlete_id, status='discovered')
 
-                        if discovered_content:
-                            st.markdown(f"#### 📥 Discovered Content ({len(discovered_content)} items)")
-                            st.caption("Review and select content to add to this athlete's profile")
+                        # Filter by platform if selected
+                        if platform_filter != 'all':
+                            discovered_content = [d for d in discovered_content if d.get('content_items', {}).get('platform') == platform_filter]
 
-                            # Select All / Reject All buttons
-                            sel_col1, sel_col2, sel_col3 = st.columns([1, 1, 4])
-                            with sel_col1:
+                        if discovered_content:
+                            st.caption(f"{len(discovered_content)} items to review")
+
+                            # Bulk action buttons
+                            bulk_col1, bulk_col2, bulk_col3 = st.columns([1, 1, 4])
+                            with bulk_col1:
                                 if st.button("✅ Select All", key=f"select_all_{athlete_id}"):
                                     for item in discovered_content:
                                         update_athlete_content_status(item['id'], 'selected')
                                     st.rerun()
-                            with sel_col2:
+                            with bulk_col2:
                                 if st.button("❌ Reject All", key=f"reject_all_{athlete_id}"):
                                     for item in discovered_content:
                                         update_athlete_content_status(item['id'], 'rejected')
                                     st.rerun()
 
-                            # List discovered items
+                            # List discovered items with thumbnails
                             for item in discovered_content:
                                 content = item.get('content_items', {})
                                 if content:
                                     with st.container(border=True):
-                                        item_col1, item_col2 = st.columns([4, 1])
-                                        with item_col1:
+                                        thumb_col, info_col, btn_col = st.columns([1, 4, 1])
+                                        with thumb_col:
+                                            if content.get('thumbnail_url'):
+                                                st.image(content['thumbnail_url'], width=120)
+                                            else:
+                                                platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
+                                                st.markdown(f"<div style='font-size:48px;text-align:center'>{platform_emoji}</div>", unsafe_allow_html=True)
+                                        with info_col:
                                             platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
-                                            st.markdown(f"{platform_emoji} **{content.get('title', 'Untitled')[:70]}**")
-                                            meta_parts = [(content.get('platform') or '').title()]
+                                            st.markdown(f"**{content.get('title', 'Untitled')[:80]}**")
+                                            meta_parts = [f"{platform_emoji} {(content.get('platform') or '').title()}"]
+                                            if content.get('duration_seconds'):
+                                                mins = content['duration_seconds'] // 60
+                                                secs = content['duration_seconds'] % 60
+                                                meta_parts.append(f"⏱️ {mins}:{secs:02d}")
                                             if content.get('view_count'):
-                                                meta_parts.append(f"{content['view_count']:,} views")
+                                                meta_parts.append(f"👁️ {content['view_count']:,}")
                                             if content.get('published_date'):
-                                                meta_parts.append(content['published_date'][:10])
+                                                meta_parts.append(f"📅 {str(content['published_date'])[:10]}")
                                             st.caption(" • ".join(meta_parts))
                                             if content.get('url'):
                                                 st.markdown(f"[View →]({content['url']})")
-                                        with item_col2:
-                                            btn_col1, btn_col2 = st.columns(2)
-                                            with btn_col1:
-                                                if st.button("✅", key=f"sel_{item['id']}", help="Select"):
-                                                    update_athlete_content_status(item['id'], 'selected')
-                                                    st.rerun()
-                                            with btn_col2:
-                                                if st.button("❌", key=f"rej_{item['id']}", help="Reject"):
-                                                    update_athlete_content_status(item['id'], 'rejected')
-                                                    st.rerun()
+                                        with btn_col:
+                                            if st.button("✅", key=f"sel_{item['id']}", help="Select", use_container_width=True):
+                                                update_athlete_content_status(item['id'], 'selected')
+                                                st.rerun()
+                                            if st.button("❌", key=f"rej_{item['id']}", help="Reject", use_container_width=True):
+                                                update_athlete_content_status(item['id'], 'rejected')
+                                                st.rerun()
+                        else:
+                            st.info("No content to review. Run discovery to find content.")
 
                         # =================== SELECTED CONTENT SECTION ===================
                         st.markdown("---")
@@ -4580,21 +4649,79 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                         if linked_content:
                             st.markdown(f"**{len(linked_content)} items** selected for this athlete")
 
+                            # AI Blurb generation section
+                            with st.expander("🤖 AI Blurb Generation", expanded=False):
+                                needs_blurb = [c for c in linked_content if not c.get('content_items', {}).get('ai_description')]
+                                has_blurb = [c for c in linked_content if c.get('content_items', {}).get('ai_description')]
+                                st.caption(f"{len(has_blurb)} items have blurbs, {len(needs_blurb)} need blurbs")
+
+                                blurb_col1, blurb_col2, blurb_col3 = st.columns(3)
+                                with blurb_col1:
+                                    if st.button("🤖 Generate Missing Blurbs", key=f"gen_blurbs_{athlete_id}", disabled=len(needs_blurb)==0):
+                                        with st.spinner(f"Generating {len(needs_blurb)} blurbs..."):
+                                            for item in needs_blurb:
+                                                content = item.get('content_items', {})
+                                                if content:
+                                                    blurb, error = generate_ai_blurb(
+                                                        title=content.get('title', ''),
+                                                        description=content.get('description', ''),
+                                                        platform=content.get('platform'),
+                                                        creator_name=None
+                                                    )
+                                                    if blurb:
+                                                        update_content_ai_description(content['id'], blurb)
+                                        st.success("Blurbs generated!")
+                                        st.rerun()
+
+                                with blurb_col2:
+                                    regen_platform = st.selectbox("Regenerate for:", ['all', 'youtube', 'podcast', 'article'],
+                                        key=f"regen_plat_{athlete_id}", label_visibility="collapsed")
+
+                                with blurb_col3:
+                                    if st.button(f"🔄 Regenerate", key=f"regen_blurbs_{athlete_id}"):
+                                        with st.spinner("Regenerating blurbs..."):
+                                            for item in linked_content:
+                                                content = item.get('content_items', {})
+                                                if content and (regen_platform == 'all' or content.get('platform') == regen_platform):
+                                                    blurb, error = generate_ai_blurb(
+                                                        title=content.get('title', ''),
+                                                        description=content.get('description', ''),
+                                                        platform=content.get('platform'),
+                                                        creator_name=None
+                                                    )
+                                                    if blurb:
+                                                        update_content_ai_description(content['id'], blurb)
+                                        st.success("Blurbs regenerated!")
+                                        st.rerun()
+
+                            # List selected items with thumbnails
                             for idx, link in enumerate(linked_content):
                                 content = link.get('content_items', {})
                                 if content:
-                                    col1, col2, col3, col4 = st.columns([4, 2, 1, 1])
-                                    with col1:
-                                        platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
-                                        st.write(f"{platform_emoji} **{content.get('title', 'Untitled')[:50]}**")
-                                    with col2:
-                                        st.caption((content.get('platform') or '').title())
-                                    with col3:
-                                        new_order = st.number_input("Order", value=link.get('display_order') or idx, key=f"order_{link['id']}", min_value=0, label_visibility="collapsed")
-                                    with col4:
-                                        if st.button("🗑️", key=f"unlink_{link['id']}", help="Remove"):
-                                            update_athlete_content_status(link['id'], 'rejected')
-                                            st.rerun()
+                                    with st.container(border=True):
+                                        thumb_col, info_col, order_col, btn_col = st.columns([1, 3, 1, 1])
+                                        with thumb_col:
+                                            if content.get('thumbnail_url'):
+                                                st.image(content['thumbnail_url'], width=100)
+                                            else:
+                                                platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
+                                                st.markdown(f"<div style='font-size:36px;text-align:center'>{platform_emoji}</div>", unsafe_allow_html=True)
+                                        with info_col:
+                                            platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
+                                            st.markdown(f"**{content.get('title', 'Untitled')[:60]}**")
+                                            meta_parts = [f"{platform_emoji} {(content.get('platform') or '').title()}"]
+                                            if content.get('duration_seconds'):
+                                                mins = content['duration_seconds'] // 60
+                                                meta_parts.append(f"⏱️ {mins}min")
+                                            st.caption(" • ".join(meta_parts))
+                                            if content.get('ai_description'):
+                                                st.caption(f"🤖 {content['ai_description'][:100]}...")
+                                        with order_col:
+                                            new_order = st.number_input("Order", value=link.get('display_order') or idx, key=f"order_{link['id']}", min_value=0, label_visibility="collapsed")
+                                        with btn_col:
+                                            if st.button("🗑️", key=f"unlink_{link['id']}", help="Remove"):
+                                                update_athlete_content_status(link['id'], 'rejected')
+                                                st.rerun()
 
                             # Update order button
                             if st.button("💾 Update Order", key="update_order_athletes"):
@@ -4824,53 +4951,120 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                         st.error("Discovery failed")
                                     st.rerun()
 
-                        # Discovered content (pending curation)
+                        # =================== CONTENT STATUS SUMMARY ===================
+                        # Get all content for this topic (all statuses)
+                        all_topic_content = supabase_get('performance_content',
+                            f'topic_id=eq.{topic_id}&select=id,status,content_id,content_items(id,platform)') or []
+
+                        # Build status counts by platform
+                        status_counts = {}
+                        for item in all_topic_content:
+                            content = item.get('content_items', {})
+                            platform = content.get('platform', 'other') if content else 'other'
+                            status = item.get('status', 'discovered')
+                            if platform not in status_counts:
+                                status_counts[platform] = {'discovered': 0, 'selected': 0, 'rejected': 0}
+                            if status in status_counts[platform]:
+                                status_counts[platform][status] += 1
+
+                        if status_counts:
+                            st.markdown("#### 📊 Content Summary")
+                            summary_data = []
+                            for platform in ['youtube', 'podcast', 'article', 'reddit']:
+                                if platform in status_counts:
+                                    counts = status_counts[platform]
+                                    emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(platform, '🔗')
+                                    summary_data.append({
+                                        'Platform': f"{emoji} {platform.title()}",
+                                        'To Review': counts.get('discovered', 0),
+                                        'Selected': counts.get('selected', 0),
+                                        'Rejected': counts.get('rejected', 0)
+                                    })
+                            if summary_data:
+                                import pandas as pd
+                                df = pd.DataFrame(summary_data)
+                                totals = {
+                                    'Platform': '**Total**',
+                                    'To Review': df['To Review'].sum(),
+                                    'Selected': df['Selected'].sum(),
+                                    'Rejected': df['Rejected'].sum()
+                                }
+                                df = pd.concat([df, pd.DataFrame([totals])], ignore_index=True)
+                                st.dataframe(df, hide_index=True, use_container_width=True)
+
+                        # =================== DISCOVERED CONTENT (TO REVIEW) ===================
+                        st.markdown("---")
+                        st.markdown("### 📥 To Review")
+
+                        # Platform filter
+                        filter_col1, filter_col2 = st.columns([2, 4])
+                        with filter_col1:
+                            topic_platform_filter = st.selectbox(
+                                "Filter by Platform",
+                                options=['all', 'youtube', 'podcast', 'article', 'reddit'],
+                                format_func=lambda x: 'All Platforms' if x == 'all' else f"{'▶️' if x=='youtube' else '🎙️' if x=='podcast' else '📄' if x=='article' else '💬'} {x.title()}",
+                                key=f"topic_platform_filter_{topic_id}"
+                            )
+
+                        # Fetch discovered content
                         discovered_content = get_topic_discovered_content(topic_id, status='discovered')
 
-                        if discovered_content:
-                            st.markdown(f"#### 📥 Discovered Content ({len(discovered_content)} items)")
-                            st.caption("Review and select content to add to this topic")
+                        # Filter by platform if selected
+                        if topic_platform_filter != 'all':
+                            discovered_content = [d for d in discovered_content if d.get('content_items', {}).get('platform') == topic_platform_filter]
 
-                            # Select All / Reject All buttons
-                            sel_col1, sel_col2, sel_col3 = st.columns([1, 1, 4])
-                            with sel_col1:
+                        if discovered_content:
+                            st.caption(f"{len(discovered_content)} items to review")
+
+                            # Bulk action buttons
+                            bulk_col1, bulk_col2, bulk_col3 = st.columns([1, 1, 4])
+                            with bulk_col1:
                                 if st.button("✅ Select All", key=f"tselect_all_{topic_id}"):
                                     for item in discovered_content:
                                         update_topic_content_status(item['id'], 'selected')
                                     st.rerun()
-                            with sel_col2:
+                            with bulk_col2:
                                 if st.button("❌ Reject All", key=f"treject_all_{topic_id}"):
                                     for item in discovered_content:
                                         update_topic_content_status(item['id'], 'rejected')
                                     st.rerun()
 
-                            # List discovered items
+                            # List discovered items with thumbnails
                             for item in discovered_content:
                                 content = item.get('content_items', {})
                                 if content:
                                     with st.container(border=True):
-                                        item_col1, item_col2 = st.columns([4, 1])
-                                        with item_col1:
+                                        thumb_col, info_col, btn_col = st.columns([1, 4, 1])
+                                        with thumb_col:
+                                            if content.get('thumbnail_url'):
+                                                st.image(content['thumbnail_url'], width=120)
+                                            else:
+                                                platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
+                                                st.markdown(f"<div style='font-size:48px;text-align:center'>{platform_emoji}</div>", unsafe_allow_html=True)
+                                        with info_col:
                                             platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
-                                            st.markdown(f"{platform_emoji} **{content.get('title', 'Untitled')[:70]}**")
-                                            meta_parts = [(content.get('platform') or '').title()]
+                                            st.markdown(f"**{content.get('title', 'Untitled')[:80]}**")
+                                            meta_parts = [f"{platform_emoji} {(content.get('platform') or '').title()}"]
+                                            if content.get('duration_seconds'):
+                                                mins = content['duration_seconds'] // 60
+                                                secs = content['duration_seconds'] % 60
+                                                meta_parts.append(f"⏱️ {mins}:{secs:02d}")
                                             if content.get('view_count'):
-                                                meta_parts.append(f"{content['view_count']:,} views")
+                                                meta_parts.append(f"👁️ {content['view_count']:,}")
                                             if content.get('published_date'):
-                                                meta_parts.append(content['published_date'][:10])
+                                                meta_parts.append(f"📅 {str(content['published_date'])[:10]}")
                                             st.caption(" • ".join(meta_parts))
                                             if content.get('url'):
                                                 st.markdown(f"[View →]({content['url']})")
-                                        with item_col2:
-                                            btn_col1, btn_col2 = st.columns(2)
-                                            with btn_col1:
-                                                if st.button("✅", key=f"tsel_{item['id']}", help="Select"):
-                                                    update_topic_content_status(item['id'], 'selected')
-                                                    st.rerun()
-                                            with btn_col2:
-                                                if st.button("❌", key=f"trej_{item['id']}", help="Reject"):
-                                                    update_topic_content_status(item['id'], 'rejected')
-                                                    st.rerun()
+                                        with btn_col:
+                                            if st.button("✅", key=f"tsel_{item['id']}", help="Select", use_container_width=True):
+                                                update_topic_content_status(item['id'], 'selected')
+                                                st.rerun()
+                                            if st.button("❌", key=f"trej_{item['id']}", help="Reject", use_container_width=True):
+                                                update_topic_content_status(item['id'], 'rejected')
+                                                st.rerun()
+                        else:
+                            st.info("No content to review. Run discovery to find content.")
 
                         # =================== SELECTED CONTENT SECTION ===================
                         st.markdown("---")
@@ -4882,21 +5076,79 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                         if linked_content:
                             st.markdown(f"**{len(linked_content)} items** selected for this topic")
 
+                            # AI Blurb generation section
+                            with st.expander("🤖 AI Blurb Generation", expanded=False):
+                                needs_blurb = [c for c in linked_content if not c.get('content_items', {}).get('ai_description')]
+                                has_blurb = [c for c in linked_content if c.get('content_items', {}).get('ai_description')]
+                                st.caption(f"{len(has_blurb)} items have blurbs, {len(needs_blurb)} need blurbs")
+
+                                blurb_col1, blurb_col2, blurb_col3 = st.columns(3)
+                                with blurb_col1:
+                                    if st.button("🤖 Generate Missing Blurbs", key=f"tgen_blurbs_{topic_id}", disabled=len(needs_blurb)==0):
+                                        with st.spinner(f"Generating {len(needs_blurb)} blurbs..."):
+                                            for item in needs_blurb:
+                                                content = item.get('content_items', {})
+                                                if content:
+                                                    blurb, error = generate_ai_blurb(
+                                                        title=content.get('title', ''),
+                                                        description=content.get('description', ''),
+                                                        platform=content.get('platform'),
+                                                        creator_name=None
+                                                    )
+                                                    if blurb:
+                                                        update_content_ai_description(content['id'], blurb)
+                                        st.success("Blurbs generated!")
+                                        st.rerun()
+
+                                with blurb_col2:
+                                    tregen_platform = st.selectbox("Regenerate for:", ['all', 'youtube', 'podcast', 'article', 'reddit'],
+                                        key=f"tregen_plat_{topic_id}", label_visibility="collapsed")
+
+                                with blurb_col3:
+                                    if st.button(f"🔄 Regenerate", key=f"tregen_blurbs_{topic_id}"):
+                                        with st.spinner("Regenerating blurbs..."):
+                                            for item in linked_content:
+                                                content = item.get('content_items', {})
+                                                if content and (tregen_platform == 'all' or content.get('platform') == tregen_platform):
+                                                    blurb, error = generate_ai_blurb(
+                                                        title=content.get('title', ''),
+                                                        description=content.get('description', ''),
+                                                        platform=content.get('platform'),
+                                                        creator_name=None
+                                                    )
+                                                    if blurb:
+                                                        update_content_ai_description(content['id'], blurb)
+                                        st.success("Blurbs regenerated!")
+                                        st.rerun()
+
+                            # List selected items with thumbnails
                             for idx, link in enumerate(linked_content):
                                 content = link.get('content_items', {})
                                 if content:
-                                    col1, col2, col3, col4 = st.columns([4, 2, 1, 1])
-                                    with col1:
-                                        platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
-                                        st.write(f"{platform_emoji} **{content.get('title', 'Untitled')[:50]}**")
-                                    with col2:
-                                        st.caption((content.get('platform') or '').title())
-                                    with col3:
-                                        new_order = st.number_input("Order", value=link.get('display_order') or idx, key=f"torder_{link['id']}", min_value=0, label_visibility="collapsed")
-                                    with col4:
-                                        if st.button("🗑️", key=f"tunlink_{link['id']}", help="Remove"):
-                                            update_topic_content_status(link['id'], 'rejected')
-                                            st.rerun()
+                                    with st.container(border=True):
+                                        thumb_col, info_col, order_col, btn_col = st.columns([1, 3, 1, 1])
+                                        with thumb_col:
+                                            if content.get('thumbnail_url'):
+                                                st.image(content['thumbnail_url'], width=100)
+                                            else:
+                                                platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
+                                                st.markdown(f"<div style='font-size:36px;text-align:center'>{platform_emoji}</div>", unsafe_allow_html=True)
+                                        with info_col:
+                                            platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
+                                            st.markdown(f"**{content.get('title', 'Untitled')[:60]}**")
+                                            meta_parts = [f"{platform_emoji} {(content.get('platform') or '').title()}"]
+                                            if content.get('duration_seconds'):
+                                                mins = content['duration_seconds'] // 60
+                                                meta_parts.append(f"⏱️ {mins}min")
+                                            st.caption(" • ".join(meta_parts))
+                                            if content.get('ai_description'):
+                                                st.caption(f"🤖 {content['ai_description'][:100]}...")
+                                        with order_col:
+                                            new_order = st.number_input("Order", value=link.get('display_order') or idx, key=f"torder_{link['id']}", min_value=0, label_visibility="collapsed")
+                                        with btn_col:
+                                            if st.button("🗑️", key=f"tunlink_{link['id']}", help="Remove"):
+                                                update_topic_content_status(link['id'], 'rejected')
+                                                st.rerun()
 
                             # Update order button
                             if st.button("💾 Update Order", key="update_order_topics"):
