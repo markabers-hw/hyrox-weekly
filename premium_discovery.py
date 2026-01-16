@@ -14,6 +14,14 @@ import requests
 import re
 import feedparser
 from urllib.parse import quote
+from bs4 import BeautifulSoup
+
+# Try to import Google News URL decoder
+try:
+    from googlenewsdecoder import new_decoderv1
+    HAS_GNEWS_DECODER = True
+except ImportError:
+    HAS_GNEWS_DECODER = False
 
 load_dotenv()
 
@@ -54,6 +62,51 @@ class DatabaseManager:
     def rollback(self):
         if self.conn:
             self.conn.rollback()
+
+
+def decode_google_news_url(url):
+    """Decode a Google News URL to get the actual article URL."""
+    if not HAS_GNEWS_DECODER:
+        return url
+    if 'news.google.com' not in url:
+        return url
+    try:
+        result = new_decoderv1(url)
+        if result.get('status') and result.get('decoded_url'):
+            return result['decoded_url']
+    except Exception:
+        pass
+    return url
+
+
+def extract_thumbnail(url):
+    """Extract thumbnail from article page using og:image meta tag."""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (compatible; HyroxWeekly/1.0)'}
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return None
+
+        soup = BeautifulSoup(resp.text, 'html.parser')
+
+        # Try og:image first (most common)
+        og = soup.find('meta', property='og:image')
+        if og and og.get('content'):
+            img_url = og['content']
+            # Skip Google placeholder images
+            if 'lh3.googleusercontent.com' not in img_url:
+                return img_url
+
+        # Try twitter:image
+        twitter = soup.find('meta', attrs={'name': 'twitter:image'})
+        if twitter and twitter.get('content'):
+            img_url = twitter['content']
+            if 'lh3.googleusercontent.com' not in img_url:
+                return img_url
+
+        return None
+    except Exception:
+        return None
 
 
 class AthleteDiscovery:
@@ -267,12 +320,22 @@ class AthleteDiscovery:
                         source = entry.get('source', {})
                         source_name = source.get('title', 'Unknown') if isinstance(source, dict) else 'Unknown'
 
+                        # Decode Google News URL to get actual article URL
+                        actual_url = decode_google_news_url(url)
+
+                        # Extract thumbnail from actual article
+                        thumbnail = None
+                        if actual_url != url:
+                            thumbnail = extract_thumbnail(actual_url)
+                            print(f"      📷 Extracted thumbnail for: {entry.get('title', '')[:40]}...")
+
                         all_articles.append({
                             'title': entry.get('title', ''),
-                            'url': url,
+                            'url': actual_url,
                             'description': entry.get('summary', ''),
                             'published_date': entry.get('published'),
                             'creator_name': source_name,
+                            'thumbnail_url': thumbnail,
                         })
 
                 print(f"   '{term} hyrox': {len(feed.entries)} articles")
@@ -575,12 +638,22 @@ class TopicDiscovery:
                         source = entry.get('source', {})
                         source_name = source.get('title', 'Unknown') if isinstance(source, dict) else 'Unknown'
 
+                        # Decode Google News URL to get actual article URL
+                        actual_url = decode_google_news_url(url)
+
+                        # Extract thumbnail from actual article
+                        thumbnail = None
+                        if actual_url != url:
+                            thumbnail = extract_thumbnail(actual_url)
+                            print(f"      📷 Extracted thumbnail for: {entry.get('title', '')[:40]}...")
+
                         all_articles.append({
                             'title': entry.get('title', ''),
-                            'url': url,
+                            'url': actual_url,
                             'description': entry.get('summary', ''),
                             'published_date': entry.get('published'),
                             'creator_name': source_name,
+                            'thumbnail_url': thumbnail,
                         })
 
                 print(f"   '{term}': {len(feed.entries)} articles")

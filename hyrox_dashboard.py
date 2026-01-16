@@ -4647,37 +4647,39 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                         linked_content = get_athlete_discovered_content(athlete_id, status='selected')
 
                         if linked_content:
-                            st.markdown(f"**{len(linked_content)} items** selected for this athlete")
+                            # AI Blurb generation - prominent display
+                            needs_blurb = [c for c in linked_content if not c.get('content_items', {}).get('ai_description')]
+                            has_blurb = [c for c in linked_content if c.get('content_items', {}).get('ai_description')]
 
-                            # AI Blurb generation section
-                            with st.expander("🤖 AI Blurb Generation", expanded=False):
-                                needs_blurb = [c for c in linked_content if not c.get('content_items', {}).get('ai_description')]
-                                has_blurb = [c for c in linked_content if c.get('content_items', {}).get('ai_description')]
-                                st.caption(f"{len(has_blurb)} items have blurbs, {len(needs_blurb)} need blurbs")
+                            blurb_col1, blurb_col2 = st.columns([2, 1])
+                            with blurb_col1:
+                                st.markdown(f"**{len(linked_content)} items** selected • ✅ {len(has_blurb)} have blurbs • ⏳ {len(needs_blurb)} need blurbs")
+                            with blurb_col2:
+                                if st.button("✨ Generate Missing Blurbs", key=f"gen_blurbs_{athlete_id}", disabled=len(needs_blurb)==0, type="primary" if len(needs_blurb) > 0 else "secondary"):
+                                    with st.spinner(f"Generating {len(needs_blurb)} blurbs..."):
+                                        for item in needs_blurb:
+                                            content = item.get('content_items', {})
+                                            if content:
+                                                blurb, error = generate_ai_blurb(
+                                                    title=content.get('title', ''),
+                                                    description=content.get('description', ''),
+                                                    platform=content.get('platform'),
+                                                    creator_name=None
+                                                )
+                                                if blurb:
+                                                    update_content_ai_description(content['id'], blurb)
+                                    st.success("Blurbs generated!")
+                                    st.rerun()
 
-                                blurb_col1, blurb_col2, blurb_col3 = st.columns(3)
-                                with blurb_col1:
-                                    if st.button("🤖 Generate Missing Blurbs", key=f"gen_blurbs_{athlete_id}", disabled=len(needs_blurb)==0):
-                                        with st.spinner(f"Generating {len(needs_blurb)} blurbs..."):
-                                            for item in needs_blurb:
-                                                content = item.get('content_items', {})
-                                                if content:
-                                                    blurb, error = generate_ai_blurb(
-                                                        title=content.get('title', ''),
-                                                        description=content.get('description', ''),
-                                                        platform=content.get('platform'),
-                                                        creator_name=None
-                                                    )
-                                                    if blurb:
-                                                        update_content_ai_description(content['id'], blurb)
-                                        st.success("Blurbs generated!")
-                                        st.rerun()
-
-                                with blurb_col2:
+                            # Regenerate options in expander
+                            with st.expander("🔄 Regenerate Existing Blurbs", expanded=False):
+                                regen_col1, regen_col2 = st.columns([2, 1])
+                                with regen_col1:
                                     regen_platform = st.selectbox("Regenerate for:", ['all', 'youtube', 'podcast', 'article'],
-                                        key=f"regen_plat_{athlete_id}", label_visibility="collapsed")
+                                        format_func=lambda x: {'all': 'All Platforms', 'youtube': 'YouTube only', 'podcast': 'Podcasts only', 'article': 'Articles only'}.get(x, x),
+                                        key=f"regen_plat_{athlete_id}")
 
-                                with blurb_col3:
+                                with regen_col2:
                                     if st.button(f"🔄 Regenerate", key=f"regen_blurbs_{athlete_id}"):
                                         with st.spinner("Regenerating blurbs..."):
                                             for item in linked_content:
@@ -5074,37 +5076,39 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                         linked_content = get_topic_discovered_content(topic_id, status='selected')
 
                         if linked_content:
-                            st.markdown(f"**{len(linked_content)} items** selected for this topic")
+                            # AI Blurb generation - prominent display
+                            needs_blurb = [c for c in linked_content if not c.get('content_items', {}).get('ai_description')]
+                            has_blurb = [c for c in linked_content if c.get('content_items', {}).get('ai_description')]
 
-                            # AI Blurb generation section
-                            with st.expander("🤖 AI Blurb Generation", expanded=False):
-                                needs_blurb = [c for c in linked_content if not c.get('content_items', {}).get('ai_description')]
-                                has_blurb = [c for c in linked_content if c.get('content_items', {}).get('ai_description')]
-                                st.caption(f"{len(has_blurb)} items have blurbs, {len(needs_blurb)} need blurbs")
+                            blurb_col1, blurb_col2 = st.columns([2, 1])
+                            with blurb_col1:
+                                st.markdown(f"**{len(linked_content)} items** selected • ✅ {len(has_blurb)} have blurbs • ⏳ {len(needs_blurb)} need blurbs")
+                            with blurb_col2:
+                                if st.button("✨ Generate Missing Blurbs", key=f"tgen_blurbs_{topic_id}", disabled=len(needs_blurb)==0, type="primary" if len(needs_blurb) > 0 else "secondary"):
+                                    with st.spinner(f"Generating {len(needs_blurb)} blurbs..."):
+                                        for item in needs_blurb:
+                                            content = item.get('content_items', {})
+                                            if content:
+                                                blurb, error = generate_ai_blurb(
+                                                    title=content.get('title', ''),
+                                                    description=content.get('description', ''),
+                                                    platform=content.get('platform'),
+                                                    creator_name=None
+                                                )
+                                                if blurb:
+                                                    update_content_ai_description(content['id'], blurb)
+                                    st.success("Blurbs generated!")
+                                    st.rerun()
 
-                                blurb_col1, blurb_col2, blurb_col3 = st.columns(3)
-                                with blurb_col1:
-                                    if st.button("🤖 Generate Missing Blurbs", key=f"tgen_blurbs_{topic_id}", disabled=len(needs_blurb)==0):
-                                        with st.spinner(f"Generating {len(needs_blurb)} blurbs..."):
-                                            for item in needs_blurb:
-                                                content = item.get('content_items', {})
-                                                if content:
-                                                    blurb, error = generate_ai_blurb(
-                                                        title=content.get('title', ''),
-                                                        description=content.get('description', ''),
-                                                        platform=content.get('platform'),
-                                                        creator_name=None
-                                                    )
-                                                    if blurb:
-                                                        update_content_ai_description(content['id'], blurb)
-                                        st.success("Blurbs generated!")
-                                        st.rerun()
-
-                                with blurb_col2:
+                            # Regenerate options in expander
+                            with st.expander("🔄 Regenerate Existing Blurbs", expanded=False):
+                                regen_col1, regen_col2 = st.columns([2, 1])
+                                with regen_col1:
                                     tregen_platform = st.selectbox("Regenerate for:", ['all', 'youtube', 'podcast', 'article', 'reddit'],
-                                        key=f"tregen_plat_{topic_id}", label_visibility="collapsed")
+                                        format_func=lambda x: {'all': 'All Platforms', 'youtube': 'YouTube only', 'podcast': 'Podcasts only', 'article': 'Articles only', 'reddit': 'Reddit only'}.get(x, x),
+                                        key=f"tregen_plat_{topic_id}")
 
-                                with blurb_col3:
+                                with regen_col2:
                                     if st.button(f"🔄 Regenerate", key=f"tregen_blurbs_{topic_id}"):
                                         with st.spinner("Regenerating blurbs..."):
                                             for item in linked_content:
