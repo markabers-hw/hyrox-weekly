@@ -1134,6 +1134,110 @@ def run_discovery_script(script_name, week_start=None, week_end=None):
 
 
 # ============================================================================
+# PREMIUM CONTENT DISCOVERY FUNCTIONS
+# ============================================================================
+
+def run_premium_discovery(entity_type, entity_id, platform='all'):
+    """Run premium discovery for an athlete or topic"""
+    script_path = os.path.join(os.getcwd(), 'premium_discovery.py')
+
+    if not os.path.exists(script_path):
+        return False, "premium_discovery.py not found", 0, 0
+
+    try:
+        env = os.environ.copy()
+        env['PREMIUM_ENTITY_TYPE'] = entity_type
+        env['PREMIUM_ENTITY_ID'] = str(entity_id)
+        env['PREMIUM_PLATFORM'] = platform
+
+        result = subprocess.run(
+            [sys.executable, script_path],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd=os.getcwd(),
+            env=env
+        )
+        output = result.stdout + result.stderr
+        success = result.returncode == 0
+
+        # Parse results from output
+        items_found = 0
+        items_saved = 0
+        if '[DISCOVERY_RESULTS]' in output:
+            found_match = re.search(r'found=(\d+)', output)
+            saved_match = re.search(r'saved=(\d+)', output)
+            if found_match:
+                items_found = int(found_match.group(1))
+            if saved_match:
+                items_saved = int(saved_match.group(1))
+
+        # Record the discovery run
+        record_premium_discovery(entity_type, entity_id, platform, items_found, items_saved,
+                                'completed' if success else 'failed')
+
+        return success, output, items_found, items_saved
+
+    except subprocess.TimeoutExpired:
+        return False, "Discovery timed out after 180 seconds", 0, 0
+    except Exception as e:
+        return False, str(e), 0, 0
+
+
+def record_premium_discovery(entity_type, entity_id, platform, items_found, items_saved, status):
+    """Record a premium discovery run"""
+    data = {
+        'entity_type': entity_type,
+        'entity_id': entity_id,
+        'platform': platform,
+        'items_found': items_found,
+        'items_saved': items_saved,
+        'status': status,
+        'run_at': datetime.now(timezone.utc).isoformat()
+    }
+    return supabase_post('premium_content_discovery', data)
+
+
+def get_premium_discovery_history(entity_type, entity_id, limit=10):
+    """Get discovery history for an entity"""
+    return supabase_get('premium_content_discovery',
+        f'entity_type=eq.{entity_type}&entity_id=eq.{entity_id}&order=run_at.desc&limit={limit}') or []
+
+
+def get_athlete_discovered_content(athlete_id, status='discovered'):
+    """Get content linked to an athlete with specified status"""
+    query = f'athlete_id=eq.{athlete_id}&status=eq.{status}&select=id,display_order,content_type,status,content_id,content_items(id,title,platform,url,thumbnail_url,description,view_count,published_date,duration_seconds)&order=added_at.desc'
+    return supabase_get('athlete_content', query) or []
+
+
+def get_topic_discovered_content(topic_id, status='discovered'):
+    """Get content linked to a topic with specified status"""
+    query = f'topic_id=eq.{topic_id}&status=eq.{status}&select=id,display_order,status,content_id,content_items(id,title,platform,url,thumbnail_url,description,view_count,published_date,duration_seconds)&order=added_at.desc'
+    return supabase_get('performance_content', query) or []
+
+
+def update_athlete_content_status(link_id, status):
+    """Update athlete_content link status"""
+    return supabase_patch('athlete_content', f'id=eq.{link_id}', {'status': status})
+
+
+def update_topic_content_status(link_id, status):
+    """Update performance_content link status"""
+    return supabase_patch('performance_content', f'id=eq.{link_id}', {'status': status})
+
+
+def update_athlete_search_terms(athlete_id, search_terms):
+    """Update search terms for an athlete"""
+    # Convert list to PostgreSQL array format
+    return supabase_patch('athletes', f'id=eq.{athlete_id}', {'search_terms': search_terms})
+
+
+def update_topic_search_terms(topic_id, search_terms):
+    """Update search terms for a topic"""
+    return supabase_patch('performance_topics', f'id=eq.{topic_id}', {'search_terms': search_terms})
+
+
+# ============================================================================
 # NEWSLETTER GENERATION
 # ============================================================================
 
@@ -4341,16 +4445,140 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                         st.success("Saved!")
                                         st.rerun()
 
-                        # Content Linking Section
+                        # =================== DISCOVERY SECTION ===================
                         st.markdown("---")
-                        st.markdown("### 🔗 Linked Content")
+                        st.markdown("### 🔍 Content Discovery")
 
-                        # Fetch linked content for this athlete
-                        linked_content = supabase_get('athlete_content',
-                            f'athlete_id=eq.{athlete_id}&select=id,display_order,content_type,content_id,content_items(id,title,platform,url,thumbnail_url)&order=display_order') or []
+                        # Search terms configuration
+                        with st.expander("⚙️ Search Terms Configuration", expanded=False):
+                            current_terms = athlete.get('search_terms') or []
+                            default_terms = [athlete['name']]
+                            if athlete.get('instagram_handle'):
+                                default_terms.append(athlete['instagram_handle'].lstrip('@'))
+
+                            st.caption("Configure search terms used for content discovery")
+                            terms_input = st.text_area(
+                                "Search Terms (one per line)",
+                                value='\n'.join(current_terms) if current_terms else '\n'.join(default_terms),
+                                key=f"search_terms_{athlete_id}",
+                                height=100
+                            )
+
+                            yt_channel = st.text_input(
+                                "YouTube Channel ID (optional)",
+                                value=athlete.get('youtube_channel_id') or '',
+                                key=f"yt_channel_{athlete_id}",
+                                help="If the athlete has a YouTube channel, enter the channel ID for direct video fetching"
+                            )
+
+                            if st.button("💾 Save Search Config", key=f"save_search_{athlete_id}"):
+                                terms_list = [t.strip() for t in terms_input.split('\n') if t.strip()]
+                                update_athlete_search_terms(athlete_id, terms_list)
+                                supabase_patch('athletes', f'id=eq.{athlete_id}', {'youtube_channel_id': yt_channel or None})
+                                st.success("Search configuration saved!")
+                                st.rerun()
+
+                        # Discovery buttons
+                        st.markdown("#### Run Discovery")
+                        disc_col1, disc_col2, disc_col3, disc_col4 = st.columns(4)
+
+                        with disc_col1:
+                            if st.button("▶️ YouTube", key=f"disc_yt_{athlete_id}", use_container_width=True):
+                                with st.spinner("Discovering YouTube videos..."):
+                                    success, output, found, saved = run_premium_discovery('athlete', athlete_id, 'youtube')
+                                    if success:
+                                        st.success(f"Found {found}, saved {saved}")
+                                    else:
+                                        st.error("Discovery failed")
+                                    st.rerun()
+
+                        with disc_col2:
+                            if st.button("🎙️ Podcasts", key=f"disc_pod_{athlete_id}", use_container_width=True):
+                                with st.spinner("Discovering podcasts..."):
+                                    success, output, found, saved = run_premium_discovery('athlete', athlete_id, 'podcast')
+                                    if success:
+                                        st.success(f"Found {found}, saved {saved}")
+                                    else:
+                                        st.error("Discovery failed")
+                                    st.rerun()
+
+                        with disc_col3:
+                            if st.button("📰 Articles", key=f"disc_art_{athlete_id}", use_container_width=True):
+                                with st.spinner("Discovering articles..."):
+                                    success, output, found, saved = run_premium_discovery('athlete', athlete_id, 'article')
+                                    if success:
+                                        st.success(f"Found {found}, saved {saved}")
+                                    else:
+                                        st.error("Discovery failed")
+                                    st.rerun()
+
+                        with disc_col4:
+                            if st.button("🔄 Run All", key=f"disc_all_{athlete_id}", type="primary", use_container_width=True):
+                                with st.spinner("Running full discovery..."):
+                                    success, output, found, saved = run_premium_discovery('athlete', athlete_id, 'all')
+                                    if success:
+                                        st.success(f"Found {found}, saved {saved}")
+                                    else:
+                                        st.error("Discovery failed")
+                                    st.rerun()
+
+                        # Discovered content (pending curation)
+                        discovered_content = get_athlete_discovered_content(athlete_id, status='discovered')
+
+                        if discovered_content:
+                            st.markdown(f"#### 📥 Discovered Content ({len(discovered_content)} items)")
+                            st.caption("Review and select content to add to this athlete's profile")
+
+                            # Select All / Reject All buttons
+                            sel_col1, sel_col2, sel_col3 = st.columns([1, 1, 4])
+                            with sel_col1:
+                                if st.button("✅ Select All", key=f"select_all_{athlete_id}"):
+                                    for item in discovered_content:
+                                        update_athlete_content_status(item['id'], 'selected')
+                                    st.rerun()
+                            with sel_col2:
+                                if st.button("❌ Reject All", key=f"reject_all_{athlete_id}"):
+                                    for item in discovered_content:
+                                        update_athlete_content_status(item['id'], 'rejected')
+                                    st.rerun()
+
+                            # List discovered items
+                            for item in discovered_content:
+                                content = item.get('content_items', {})
+                                if content:
+                                    with st.container(border=True):
+                                        item_col1, item_col2 = st.columns([4, 1])
+                                        with item_col1:
+                                            platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
+                                            st.markdown(f"{platform_emoji} **{content.get('title', 'Untitled')[:70]}**")
+                                            meta_parts = [(content.get('platform') or '').title()]
+                                            if content.get('view_count'):
+                                                meta_parts.append(f"{content['view_count']:,} views")
+                                            if content.get('published_date'):
+                                                meta_parts.append(content['published_date'][:10])
+                                            st.caption(" • ".join(meta_parts))
+                                            if content.get('url'):
+                                                st.markdown(f"[View →]({content['url']})")
+                                        with item_col2:
+                                            btn_col1, btn_col2 = st.columns(2)
+                                            with btn_col1:
+                                                if st.button("✅", key=f"sel_{item['id']}", help="Select"):
+                                                    update_athlete_content_status(item['id'], 'selected')
+                                                    st.rerun()
+                                            with btn_col2:
+                                                if st.button("❌", key=f"rej_{item['id']}", help="Reject"):
+                                                    update_athlete_content_status(item['id'], 'rejected')
+                                                    st.rerun()
+
+                        # =================== SELECTED CONTENT SECTION ===================
+                        st.markdown("---")
+                        st.markdown("### ✅ Selected Content")
+
+                        # Fetch selected content for this athlete
+                        linked_content = get_athlete_discovered_content(athlete_id, status='selected')
 
                         if linked_content:
-                            st.markdown(f"**{len(linked_content)} items** linked to this athlete")
+                            st.markdown(f"**{len(linked_content)} items** selected for this athlete")
 
                             for idx, link in enumerate(linked_content):
                                 content = link.get('content_items', {})
@@ -4362,10 +4590,10 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                     with col2:
                                         st.caption((content.get('platform') or '').title())
                                     with col3:
-                                        new_order = st.number_input("Order", value=link.get('display_order', idx), key=f"order_{link['id']}", min_value=0, label_visibility="collapsed")
+                                        new_order = st.number_input("Order", value=link.get('display_order') or idx, key=f"order_{link['id']}", min_value=0, label_visibility="collapsed")
                                     with col4:
-                                        if st.button("🗑️", key=f"unlink_{link['id']}", help="Remove link"):
-                                            supabase_delete('athlete_content', f'id=eq.{link["id"]}')
+                                        if st.button("🗑️", key=f"unlink_{link['id']}", help="Remove"):
+                                            update_athlete_content_status(link['id'], 'rejected')
                                             st.rerun()
 
                             # Update order button
@@ -4376,7 +4604,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                 st.success("Order updated!")
                                 st.rerun()
                         else:
-                            st.info("No content linked yet. Add content from the Content Library tab.")
+                            st.info("No content selected yet. Run discovery or add content manually.")
 
                         # Add content link
                         st.markdown("#### ➕ Link New Content")
@@ -4519,16 +4747,140 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                         st.success("Saved!")
                                         st.rerun()
 
-                        # Content Linking Section
+                        # =================== DISCOVERY SECTION ===================
                         st.markdown("---")
-                        st.markdown("### 🔗 Linked Content")
+                        st.markdown("### 🔍 Content Discovery")
 
-                        # Fetch linked content for this topic
-                        linked_content = supabase_get('performance_content',
-                            f'topic_id=eq.{topic_id}&select=id,display_order,content_id,content_items(id,title,platform,url,thumbnail_url)&order=display_order') or []
+                        # Search terms configuration
+                        with st.expander("⚙️ Search Terms Configuration", expanded=False):
+                            current_terms = topic.get('search_terms') or []
+                            default_terms = [f"hyrox {topic['name'].lower()}"]
+
+                            st.caption("Configure search terms used for content discovery")
+                            terms_input = st.text_area(
+                                "Search Terms (one per line)",
+                                value='\n'.join(current_terms) if current_terms else '\n'.join(default_terms),
+                                key=f"topic_search_terms_{topic_id}",
+                                height=100
+                            )
+
+                            if st.button("💾 Save Search Config", key=f"save_topic_search_{topic_id}"):
+                                terms_list = [t.strip() for t in terms_input.split('\n') if t.strip()]
+                                update_topic_search_terms(topic_id, terms_list)
+                                st.success("Search configuration saved!")
+                                st.rerun()
+
+                        # Discovery buttons
+                        st.markdown("#### Run Discovery")
+                        disc_col1, disc_col2, disc_col3, disc_col4, disc_col5 = st.columns(5)
+
+                        with disc_col1:
+                            if st.button("▶️ YouTube", key=f"tdisc_yt_{topic_id}", use_container_width=True):
+                                with st.spinner("Discovering YouTube videos..."):
+                                    success, output, found, saved = run_premium_discovery('topic', topic_id, 'youtube')
+                                    if success:
+                                        st.success(f"Found {found}, saved {saved}")
+                                    else:
+                                        st.error("Discovery failed")
+                                    st.rerun()
+
+                        with disc_col2:
+                            if st.button("🎙️ Podcasts", key=f"tdisc_pod_{topic_id}", use_container_width=True):
+                                with st.spinner("Discovering podcasts..."):
+                                    success, output, found, saved = run_premium_discovery('topic', topic_id, 'podcast')
+                                    if success:
+                                        st.success(f"Found {found}, saved {saved}")
+                                    else:
+                                        st.error("Discovery failed")
+                                    st.rerun()
+
+                        with disc_col3:
+                            if st.button("📰 Articles", key=f"tdisc_art_{topic_id}", use_container_width=True):
+                                with st.spinner("Discovering articles..."):
+                                    success, output, found, saved = run_premium_discovery('topic', topic_id, 'article')
+                                    if success:
+                                        st.success(f"Found {found}, saved {saved}")
+                                    else:
+                                        st.error("Discovery failed")
+                                    st.rerun()
+
+                        with disc_col4:
+                            if st.button("💬 Reddit", key=f"tdisc_red_{topic_id}", use_container_width=True):
+                                with st.spinner("Discovering Reddit posts..."):
+                                    success, output, found, saved = run_premium_discovery('topic', topic_id, 'reddit')
+                                    if success:
+                                        st.success(f"Found {found}, saved {saved}")
+                                    else:
+                                        st.error("Discovery failed")
+                                    st.rerun()
+
+                        with disc_col5:
+                            if st.button("🔄 Run All", key=f"tdisc_all_{topic_id}", type="primary", use_container_width=True):
+                                with st.spinner("Running full discovery..."):
+                                    success, output, found, saved = run_premium_discovery('topic', topic_id, 'all')
+                                    if success:
+                                        st.success(f"Found {found}, saved {saved}")
+                                    else:
+                                        st.error("Discovery failed")
+                                    st.rerun()
+
+                        # Discovered content (pending curation)
+                        discovered_content = get_topic_discovered_content(topic_id, status='discovered')
+
+                        if discovered_content:
+                            st.markdown(f"#### 📥 Discovered Content ({len(discovered_content)} items)")
+                            st.caption("Review and select content to add to this topic")
+
+                            # Select All / Reject All buttons
+                            sel_col1, sel_col2, sel_col3 = st.columns([1, 1, 4])
+                            with sel_col1:
+                                if st.button("✅ Select All", key=f"tselect_all_{topic_id}"):
+                                    for item in discovered_content:
+                                        update_topic_content_status(item['id'], 'selected')
+                                    st.rerun()
+                            with sel_col2:
+                                if st.button("❌ Reject All", key=f"treject_all_{topic_id}"):
+                                    for item in discovered_content:
+                                        update_topic_content_status(item['id'], 'rejected')
+                                    st.rerun()
+
+                            # List discovered items
+                            for item in discovered_content:
+                                content = item.get('content_items', {})
+                                if content:
+                                    with st.container(border=True):
+                                        item_col1, item_col2 = st.columns([4, 1])
+                                        with item_col1:
+                                            platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
+                                            st.markdown(f"{platform_emoji} **{content.get('title', 'Untitled')[:70]}**")
+                                            meta_parts = [(content.get('platform') or '').title()]
+                                            if content.get('view_count'):
+                                                meta_parts.append(f"{content['view_count']:,} views")
+                                            if content.get('published_date'):
+                                                meta_parts.append(content['published_date'][:10])
+                                            st.caption(" • ".join(meta_parts))
+                                            if content.get('url'):
+                                                st.markdown(f"[View →]({content['url']})")
+                                        with item_col2:
+                                            btn_col1, btn_col2 = st.columns(2)
+                                            with btn_col1:
+                                                if st.button("✅", key=f"tsel_{item['id']}", help="Select"):
+                                                    update_topic_content_status(item['id'], 'selected')
+                                                    st.rerun()
+                                            with btn_col2:
+                                                if st.button("❌", key=f"trej_{item['id']}", help="Reject"):
+                                                    update_topic_content_status(item['id'], 'rejected')
+                                                    st.rerun()
+
+                        # =================== SELECTED CONTENT SECTION ===================
+                        st.markdown("---")
+                        st.markdown("### ✅ Selected Content")
+
+                        # Fetch selected content for this topic
+                        linked_content = get_topic_discovered_content(topic_id, status='selected')
 
                         if linked_content:
-                            st.markdown(f"**{len(linked_content)} items** linked to this topic")
+                            st.markdown(f"**{len(linked_content)} items** selected for this topic")
 
                             for idx, link in enumerate(linked_content):
                                 content = link.get('content_items', {})
@@ -4540,10 +4892,10 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                     with col2:
                                         st.caption((content.get('platform') or '').title())
                                     with col3:
-                                        new_order = st.number_input("Order", value=link.get('display_order', idx), key=f"torder_{link['id']}", min_value=0, label_visibility="collapsed")
+                                        new_order = st.number_input("Order", value=link.get('display_order') or idx, key=f"torder_{link['id']}", min_value=0, label_visibility="collapsed")
                                     with col4:
-                                        if st.button("🗑️", key=f"tunlink_{link['id']}", help="Remove link"):
-                                            supabase_delete('performance_content', f'id=eq.{link["id"]}')
+                                        if st.button("🗑️", key=f"tunlink_{link['id']}", help="Remove"):
+                                            update_topic_content_status(link['id'], 'rejected')
                                             st.rerun()
 
                             # Update order button
@@ -4554,7 +4906,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                 st.success("Order updated!")
                                 st.rerun()
                         else:
-                            st.info("No content linked yet. Add content from the Content Library tab.")
+                            st.info("No content selected yet. Run discovery or add content manually.")
 
                         # Add content link
                         st.markdown("#### ➕ Link New Content")
