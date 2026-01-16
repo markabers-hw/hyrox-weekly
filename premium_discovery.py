@@ -40,6 +40,9 @@ ENTITY_TYPE = os.getenv('PREMIUM_ENTITY_TYPE')  # 'athlete' or 'topic'
 ENTITY_ID = os.getenv('PREMIUM_ENTITY_ID')
 PLATFORM = os.getenv('PREMIUM_PLATFORM')  # 'youtube', 'podcast', 'article', 'reddit', 'all'
 
+# YouTube settings
+YOUTUBE_MIN_DURATION = int(os.getenv('YOUTUBE_MIN_DURATION', '60'))  # seconds
+
 
 class DatabaseManager:
     """Handle database connections and operations"""
@@ -221,6 +224,17 @@ class AthleteDiscovery:
             for video in all_videos:
                 video_id = video['id']['videoId']
                 video['stats'] = stats.get(video_id, {})
+
+            # Filter out videos shorter than minimum duration
+            if YOUTUBE_MIN_DURATION > 0:
+                before_count = len(all_videos)
+                all_videos = [
+                    v for v in all_videos
+                    if self._parse_duration(v.get('stats', {}).get('duration', 'PT0S')) >= YOUTUBE_MIN_DURATION
+                ]
+                filtered_count = before_count - len(all_videos)
+                if filtered_count > 0:
+                    print(f"   🔇 Filtered out {filtered_count} videos shorter than {YOUTUBE_MIN_DURATION}s")
 
         print(f"   ✅ Total unique videos: {len(all_videos)}")
         return all_videos
@@ -546,6 +560,17 @@ class TopicDiscovery:
             stats = self._get_video_stats(video_ids)
             for video in all_videos:
                 video['stats'] = stats.get(video['id']['videoId'], {})
+
+            # Filter out videos shorter than minimum duration
+            if YOUTUBE_MIN_DURATION > 0:
+                before_count = len(all_videos)
+                all_videos = [
+                    v for v in all_videos
+                    if self._parse_duration(v.get('stats', {}).get('duration', 'PT0S')) >= YOUTUBE_MIN_DURATION
+                ]
+                filtered_count = before_count - len(all_videos)
+                if filtered_count > 0:
+                    print(f"   🔇 Filtered out {filtered_count} videos shorter than {YOUTUBE_MIN_DURATION}s")
 
         print(f"   ✅ Total: {len(all_videos)} videos")
         return all_videos

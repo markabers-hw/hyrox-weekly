@@ -1150,6 +1150,11 @@ def run_premium_discovery(entity_type, entity_id, platform='all'):
         env['PREMIUM_ENTITY_ID'] = str(entity_id)
         env['PREMIUM_PLATFORM'] = platform
 
+        # Pass YouTube settings from config
+        if 'newsletter_config' in st.session_state:
+            config = st.session_state['newsletter_config']
+            env['YOUTUBE_MIN_DURATION'] = config.get('youtube_min_duration', '60')
+
         result = subprocess.run(
             [sys.executable, script_path],
             capture_output=True,
