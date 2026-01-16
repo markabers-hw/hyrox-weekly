@@ -1211,13 +1211,13 @@ def get_premium_discovery_history(entity_type, entity_id, limit=10):
 
 def get_athlete_discovered_content(athlete_id, status='discovered'):
     """Get content linked to an athlete with specified status"""
-    query = f'athlete_id=eq.{athlete_id}&status=eq.{status}&select=id,display_order,content_type,status,content_id,content_items(id,title,platform,url,thumbnail_url,description,ai_description,view_count,published_date,duration_seconds)&order=added_at.desc'
+    query = f'athlete_id=eq.{athlete_id}&status=eq.{status}&select=id,display_order,content_type,status,content_id,content_items(id,title,platform,url,thumbnail_url,description,ai_description,view_count,published_date,duration_seconds,creators(name))&order=added_at.desc'
     return supabase_get('athlete_content', query) or []
 
 
 def get_topic_discovered_content(topic_id, status='discovered'):
     """Get content linked to a topic with specified status"""
-    query = f'topic_id=eq.{topic_id}&status=eq.{status}&select=id,display_order,status,content_id,content_items(id,title,platform,url,thumbnail_url,description,ai_description,view_count,published_date,duration_seconds)&order=added_at.desc'
+    query = f'topic_id=eq.{topic_id}&status=eq.{status}&select=id,display_order,status,content_id,content_items(id,title,platform,url,thumbnail_url,description,ai_description,view_count,published_date,duration_seconds,creators(name))&order=added_at.desc'
     return supabase_get('performance_content', query) or []
 
 
@@ -4695,6 +4695,10 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                         with info_col:
                                             platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
                                             st.markdown(f"**{content.get('title', 'Untitled')[:80]}**")
+                                            # Show creator/channel name
+                                            creator_name = content.get('creators', {}).get('name') if content.get('creators') else None
+                                            if creator_name:
+                                                st.caption(f"📺 {creator_name}")
                                             meta_parts = [f"{platform_emoji} {(content.get('platform') or '').title()}"]
                                             if content.get('duration_seconds'):
                                                 mins = content['duration_seconds'] // 60
@@ -5157,6 +5161,10 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                         with info_col:
                                             platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
                                             st.markdown(f"**{content.get('title', 'Untitled')[:80]}**")
+                                            # Show creator/channel name
+                                            creator_name = content.get('creators', {}).get('name') if content.get('creators') else None
+                                            if creator_name:
+                                                st.caption(f"📺 {creator_name}")
                                             meta_parts = [f"{platform_emoji} {(content.get('platform') or '').title()}"]
                                             if content.get('duration_seconds'):
                                                 mins = content['duration_seconds'] // 60
