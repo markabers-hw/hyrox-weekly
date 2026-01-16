@@ -4262,10 +4262,10 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                 eb_badge = "🌟" if sub.get('is_early_bird') else ""
                                 st.write(f"{eb_badge} **{email}**")
                             with col2:
-                                tier = sub.get('subscription_tier', 'N/A').title()
+                                tier = (sub.get('subscription_tier') or 'N/A').title()
                                 st.write(f"📦 {tier}")
                             with col3:
-                                status = sub.get('subscription_status', 'N/A')
+                                status = sub.get('subscription_status') or 'N/A'
                                 status_color = "🟢" if status == 'active' else "🔴" if status == 'cancelled' else "🟡"
                                 st.write(f"{status_color} {status.title()}")
                             with col4:
@@ -4318,7 +4318,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                 if athlete.get('profile_image_url'):
                                     st.image(athlete['profile_image_url'], width=150)
                                 st.markdown(f"### {athlete['name']}")
-                                st.caption(f"{athlete.get('country', '')} | {athlete.get('gender', '').title()}")
+                                st.caption(f"{athlete.get('country') or ''} | {(athlete.get('gender') or '').title()}")
                                 if athlete.get('instagram_handle'):
                                     st.markdown(f"[@{athlete['instagram_handle']}](https://instagram.com/{athlete['instagram_handle']})")
 
@@ -4360,7 +4360,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                         platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
                                         st.write(f"{platform_emoji} **{content.get('title', 'Untitled')[:50]}**")
                                     with col2:
-                                        st.caption(content.get('platform', '').title())
+                                        st.caption((content.get('platform') or '').title())
                                     with col3:
                                         new_order = st.number_input("Order", value=link.get('display_order', idx), key=f"order_{link['id']}", min_value=0, label_visibility="collapsed")
                                     with col4:
@@ -4383,7 +4383,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                         all_content = supabase_get('content_items', 'select=id,title,platform&order=title&limit=100') or []
 
                         if all_content:
-                            content_options = {c['id']: f"{c.get('platform', '').title()}: {c.get('title', 'Untitled')[:60]}" for c in all_content}
+                            content_options = {c['id']: f"{(c.get('platform') or '').title()}: {(c.get('title') or 'Untitled')[:60]}" for c in all_content}
                             selected_content_id = st.selectbox("Select content to link",
                                 options=[None] + list(content_options.keys()),
                                 format_func=lambda x: "Choose content..." if x is None else content_options.get(x, "Unknown"),
@@ -4491,9 +4491,9 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                             # Topic info card
                             with st.container(border=True):
                                 st.markdown(f"## {topic.get('icon_emoji', '📌')} {topic['name']}")
-                                st.caption(f"Category: {topic.get('category', 'other').title()}")
-                                st.caption(f"Slug: `{topic.get('slug', '')}`")
-                                status = topic.get('status', 'draft')
+                                st.caption(f"Category: {(topic.get('category') or 'other').title()}")
+                                st.caption(f"Slug: `{topic.get('slug') or ''}`")
+                                status = topic.get('status') or 'draft'
                                 status_color = "🟢" if status == 'published' else "🟡"
                                 st.write(f"Status: {status_color} {status.title()}")
 
@@ -4538,7 +4538,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                         platform_emoji = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}.get(content.get('platform', ''), '🔗')
                                         st.write(f"{platform_emoji} **{content.get('title', 'Untitled')[:50]}**")
                                     with col2:
-                                        st.caption(content.get('platform', '').title())
+                                        st.caption((content.get('platform') or '').title())
                                     with col3:
                                         new_order = st.number_input("Order", value=link.get('display_order', idx), key=f"torder_{link['id']}", min_value=0, label_visibility="collapsed")
                                     with col4:
@@ -4561,7 +4561,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                         all_content = supabase_get('content_items', 'select=id,title,platform&order=title&limit=100') or []
 
                         if all_content:
-                            content_options = {c['id']: f"{c.get('platform', '').title()}: {c.get('title', 'Untitled')[:60]}" for c in all_content}
+                            content_options = {c['id']: f"{(c.get('platform') or '').title()}: {(c.get('title') or 'Untitled')[:60]}" for c in all_content}
                             selected_content_id = st.selectbox("Select content to link",
                                 options=[None] + list(content_options.keys()),
                                 format_func=lambda x: "Choose content..." if x is None else content_options.get(x, "Unknown"),
@@ -4599,15 +4599,15 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                             categories[cat].append(topic)
 
                         for cat, cat_topics in categories.items():
-                            with st.expander(f"📁 {cat.title()} ({len(cat_topics)} topics)", expanded=True):
+                            with st.expander(f"📁 {(cat or 'other').title()} ({len(cat_topics)} topics)", expanded=True):
                                 for topic in cat_topics:
                                     linked_count = len(supabase_get('performance_content', f'topic_id=eq.{topic["id"]}&select=id') or [])
                                     col1, col2, col3 = st.columns([3, 2, 1])
                                     with col1:
-                                        emoji = topic.get('icon_emoji', '📌')
-                                        st.write(f"{emoji} **{topic.get('name', 'Unknown')}**")
+                                        emoji = topic.get('icon_emoji') or '📌'
+                                        st.write(f"{emoji} **{topic.get('name') or 'Unknown'}**")
                                     with col2:
-                                        status = topic.get('status', 'draft')
+                                        status = topic.get('status') or 'draft'
                                         status_color = "🟢" if status == 'published' else "🟡"
                                         st.caption(f"{status_color} {status.title()}")
                                     with col3:
@@ -4698,7 +4698,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                 st.markdown(f"{platform_emoji} **{title}**")
                                 st.caption(f"URL: {content.get('url', 'N/A')[:60]}...")
                             with col2:
-                                st.caption(content.get('platform', '').title())
+                                st.caption((content.get('platform') or '').title())
                                 if content.get('view_count'):
                                     st.caption(f"👁 {content['view_count']:,}")
                             with col3:
