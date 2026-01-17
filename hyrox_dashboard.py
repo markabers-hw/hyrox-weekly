@@ -1284,16 +1284,23 @@ def generate_blurbs_for_yolo(week_start, week_end):
     """
     Generate AI blurbs for all YOLO-selected content and set use_ai_description=true
     """
-    # Get all selected content for this week that needs blurbs
+    # Get all selected content for this week that needs blurbs (including creator info)
     end_date = (datetime.strptime(str(week_end), '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
     query = (
         f'status=eq.selected'
         f'&selection_method=eq.yolo'
         f'&published_date=gte.{week_start}'
         f'&published_date=lt.{end_date}'
-        f'&select=id,title,description,platform,ai_description'
+        f'&select=id,title,description,platform,ai_description,creator_id'
     )
     content = supabase_get('content_items', query) or []
+
+    # Fetch creator names for content that has creator_id
+    creator_ids = list(set(c.get('creator_id') for c in content if c.get('creator_id')))
+    creators_map = {}
+    if creator_ids:
+        creators = supabase_get('creators', f'id=in.({",".join(map(str, creator_ids))})') or []
+        creators_map = {c['id']: c.get('name') for c in creators}
 
     # Filter to items without AI description
     needs_blurb = [c for c in content if not c.get('ai_description')]
@@ -1303,11 +1310,14 @@ def generate_blurbs_for_yolo(week_start, week_end):
 
     for item in needs_blurb:
         try:
+            # Get creator name from map
+            creator_name = creators_map.get(item.get('creator_id'))
+
             blurb, error = generate_ai_blurb(
                 title=item.get('title', ''),
                 description=item.get('description', ''),
                 platform=item.get('platform'),
-                creator_name=None
+                creator_name=creator_name
             )
             if blurb:
                 # Update with AI blurb and set use_ai_description=true
