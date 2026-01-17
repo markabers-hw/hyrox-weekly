@@ -696,6 +696,13 @@ def get_newsletter_settings():
         'section_title_articles': 'Worth Reading',
         'section_title_reddit': 'Community Discussions',
         'section_title_athletes': '🏃 Athletes to Follow',
+        # YOLO Mode settings
+        'yolo_max_youtube': '8',
+        'yolo_max_podcast': '8',
+        'yolo_max_article': '8',
+        'yolo_max_reddit': '9',
+        'yolo_reddit_min_comments': '20',
+        'yolo_reddit_min_upvotes': '20',
     }
 
     rows = supabase_get('newsletter_settings') or []
@@ -1131,6 +1138,191 @@ def run_discovery_script(script_name, week_start=None, week_end=None):
         return False, "Script timed out after 120 seconds", 0, 0
     except Exception as e:
         return False, str(e), 0, 0
+
+
+# ============================================================================
+# YOLO MODE FUNCTIONS
+# ============================================================================
+
+def update_content_for_yolo(content_id, status, display_order, selection_method):
+    """Update content with YOLO selection details"""
+    data = {
+        'status': status,
+        'display_order': display_order,
+        'selection_method': selection_method,
+        'updated_at': datetime.now(timezone.utc).isoformat()
+    }
+    result = supabase_patch('content_items', f'id=eq.{content_id}', data)
+    return result
+
+
+def auto_curate_yolo(week_start, week_end, config):
+    """
+    Auto-select content based on YOLO settings:
+    1. Get all discovered content
+    2. Filter (Reddit by min comments/upvotes)
+    3. Sort (priority sources first, then by engagement)
+    4. Select top N per platform
+    5. Assign display_order in increments of 10
+    6. Mark selection_method='yolo'
+    """
+    priority_sources = get_priority_sources()
+    priority_names = {p['source_name'].lower() for p in priority_sources}
+
+    limits = {
+        'youtube': int(config.get('yolo_max_youtube', 8)),
+        'podcast': int(config.get('yolo_max_podcast', 8)),
+        'article': int(config.get('yolo_max_article', 8)),
+        'reddit': int(config.get('yolo_max_reddit', 9)),
+    }
+
+    reddit_min_comments = int(config.get('yolo_reddit_min_comments', 20))
+    reddit_min_upvotes = int(config.get('yolo_reddit_min_upvotes', 20))
+
+    summary = {'youtube': 0, 'podcast': 0, 'article': 0, 'reddit': 0, 'total': 0}
+
+    for platform in ['youtube', 'podcast', 'article', 'reddit']:
+        # Get discovered content for this platform
+        content = get_content_for_yolo(platform, week_start, week_end)
+
+        # Filter Reddit by min comments/upvotes
+        if platform == 'reddit':
+            content = [c for c in content
+                      if (c.get('comment_count', 0) or 0) >= reddit_min_comments
+                      or (c.get('view_count', 0) or 0) >= reddit_min_upvotes]
+
+        # Sort: priority sources first, then by view_count
+        def sort_key(item):
+            creator = (item.get('creators', {}).get('name') or '').lower() if item.get('creators') else ''
+            is_priority = creator in priority_names
+            return (0 if is_priority else 1, -(item.get('view_count') or 0))
+
+        content.sort(key=sort_key)
+
+        # Select top N
+        selected = content[:limits[platform]]
+
+        # Update status and display_order
+        for i, item in enumerate(selected):
+            display_order = (i + 1) * 10  # 10, 20, 30...
+            update_content_for_yolo(
+                item['id'],
+                status='selected',
+                display_order=display_order,
+                selection_method='yolo'
+            )
+
+        summary[platform] = len(selected)
+        summary['total'] += len(selected)
+
+    clear_content_caches()
+    return summary
+
+
+def get_content_for_yolo(platform, week_start, week_end):
+    """Get discovered content for a platform within the week range"""
+    end_date = (datetime.strptime(str(week_end), '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+    query = (
+        f'platform=eq.{platform}'
+        f'&status=eq.discovered'
+        f'&published_date=gte.{week_start}'
+        f'&published_date=lt.{end_date}'
+        f'&select=id,title,platform,url,view_count,comment_count,published_date,creators(name)'
+        f'&order=view_count.desc.nullslast'
+    )
+    return supabase_get('content_items', query) or []
+
+
+def run_yolo_mode(week_start, week_end, progress_callback=None):
+    """
+    One-click automation: Clear → Discover → Auto-Curate
+    Returns: (success, summary_dict)
+    """
+    config = st.session_state.get('newsletter_config', {})
+    summary = {'youtube': 0, 'podcast': 0, 'article': 0, 'reddit': 0, 'total': 0, 'errors': []}
+
+    try:
+        # Step 1: Clear existing content for this week
+        if progress_callback:
+            progress_callback(0.05, "Clearing existing content...")
+        clear_content_for_week(['all'], week_start, week_end)
+
+        # Step 2: Run all discovery scripts
+        scripts = [
+            ('youtube_discovery.py', 'YouTube', 'youtube', 0.25),
+            ('podcast_discovery.py', 'Podcasts', 'podcast', 0.45),
+            ('article_discovery.py', 'Articles', 'article', 0.65),
+            ('reddit_discovery.py', 'Reddit', 'reddit', 0.85),
+        ]
+
+        for script, name, platform, progress in scripts:
+            if progress_callback:
+                progress_callback(progress, f"Discovering {name}...")
+            success, output, found, saved = run_discovery_script(script, week_start.strftime('%Y-%m-%d'), week_end.strftime('%Y-%m-%d'))
+            record_discovery_run(platform, week_start, week_end, found, saved, 'completed' if success else 'failed')
+            if not success:
+                summary['errors'].append(f"{name} discovery failed")
+
+        # Step 3: Auto-curate with YOLO logic
+        if progress_callback:
+            progress_callback(0.95, "Auto-selecting content...")
+        curation_summary = auto_curate_yolo(week_start, week_end, config)
+        summary.update(curation_summary)
+
+        if progress_callback:
+            progress_callback(1.0, "Done!")
+
+        return True, summary
+
+    except Exception as e:
+        summary['errors'].append(str(e))
+        return False, summary
+
+
+def generate_blurbs_for_yolo(week_start, week_end):
+    """
+    Generate AI blurbs for all YOLO-selected content and set use_ai_description=true
+    """
+    # Get all selected content for this week that needs blurbs
+    end_date = (datetime.strptime(str(week_end), '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+    query = (
+        f'status=eq.selected'
+        f'&selection_method=eq.yolo'
+        f'&published_date=gte.{week_start}'
+        f'&published_date=lt.{end_date}'
+        f'&select=id,title,description,platform,ai_description'
+    )
+    content = supabase_get('content_items', query) or []
+
+    # Filter to items without AI description
+    needs_blurb = [c for c in content if not c.get('ai_description')]
+
+    generated = 0
+    failed = 0
+
+    for item in needs_blurb:
+        try:
+            blurb, error = generate_ai_blurb(
+                title=item.get('title', ''),
+                description=item.get('description', ''),
+                platform=item.get('platform'),
+                creator_name=None
+            )
+            if blurb:
+                # Update with AI blurb and set use_ai_description=true
+                supabase_patch('content_items', f'id=eq.{item["id"]}', {
+                    'ai_description': blurb,
+                    'use_ai_description': True,
+                    'updated_at': datetime.now(timezone.utc).isoformat()
+                })
+                generated += 1
+            else:
+                failed += 1
+        except Exception as e:
+            failed += 1
+
+    clear_content_caches()
+    return {'generated': generated, 'failed': failed, 'total': len(needs_blurb)}
 
 
 # ============================================================================
@@ -2472,6 +2664,10 @@ def render_content_item(item, display_tz):
             icon, badge_class = status_colors.get(status, ('📋', 'status-discovered'))
             st.markdown(f'<span class="status-badge {badge_class}">{icon} {status.title()}</span>', unsafe_allow_html=True)
 
+            # Show auto-selection badge for YOLO content
+            if item.get('selection_method') == 'yolo':
+                st.markdown('<span style="background:#e3f2fd;color:#1976d2;padding:2px 8px;border-radius:12px;font-size:11px;">🤖 Auto</span>', unsafe_allow_html=True)
+
             bcol1, bcol2 = st.columns(2)
             with bcol1:
                 if item['status'] != 'selected':
@@ -3130,10 +3326,63 @@ def main():
         week_end_date = weeks[selected_week]['end']
         
         st.info(f"🔍 Discovery will search for content from **{week_start_date}** to **{week_end_date}**")
-        
+
+        # =================== YOLO MODE SECTION ===================
+        st.markdown("---")
+        st.markdown("### 🚀 YOLO Mode")
+        st.caption("One-click: Clear existing content → Discover all platforms → Auto-curate → Generate AI blurbs → Ready to generate!")
+
+        config = st.session_state.get('newsletter_config', {})
+        yolo_col1, yolo_col2 = st.columns([3, 1])
+
+        with yolo_col1:
+            st.markdown(
+                f"**Will auto-select:** {config.get('yolo_max_youtube', 8)} videos, "
+                f"{config.get('yolo_max_podcast', 8)} podcasts, "
+                f"{config.get('yolo_max_article', 8)} articles, "
+                f"{config.get('yolo_max_reddit', 9)} Reddit threads"
+            )
+            st.caption(f"Priority sources selected first • Reddit filtered by {config.get('yolo_reddit_min_comments', 20)}+ comments or {config.get('yolo_reddit_min_upvotes', 20)}+ upvotes")
+
+        with yolo_col2:
+            if st.button("🚀 YOLO!", type="primary", use_container_width=True, key="yolo_button"):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+
+                def update_progress(progress, message):
+                    progress_bar.progress(progress)
+                    status_text.text(message)
+
+                success, summary = run_yolo_mode(week_start_date, week_end_date, update_progress)
+
+                if success:
+                    # Generate AI blurbs for selected content
+                    status_text.text("Generating AI blurbs...")
+                    blurb_results = generate_blurbs_for_yolo(week_start_date, week_end_date)
+                    progress_bar.progress(1.0)
+
+                    st.success(
+                        f"✅ YOLO complete! Selected: "
+                        f"{summary.get('youtube', 0)} videos, "
+                        f"{summary.get('podcast', 0)} podcasts, "
+                        f"{summary.get('article', 0)} articles, "
+                        f"{summary.get('reddit', 0)} Reddit threads. "
+                        f"Generated {blurb_results.get('generated', 0)} AI blurbs."
+                    )
+
+                    # Navigate to Generate tab
+                    st.session_state['selected_page'] = "📰 Generate"
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("YOLO Mode encountered errors")
+                    if summary.get('errors'):
+                        for error in summary['errors']:
+                            st.warning(error)
+
         # Get last run times for this week
         discovery_runs = get_discovery_runs(week_start_date, week_end_date)
-        
+
         st.markdown("---")
         
         # Discovery Status Table
@@ -5926,9 +6175,71 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                 value=config.get('section_title_athletes', '🏃 Athletes to Follow'),
                 help="Title for the athletes section"
             )
-        
+
         st.markdown("---")
-        
+
+        # YOLO Mode Settings
+        st.markdown("### 🚀 YOLO Mode Settings")
+        st.caption("Configure auto-curation limits for one-click edition generation")
+
+        yolo_col1, yolo_col2 = st.columns(2)
+
+        with yolo_col1:
+            st.markdown("**Content Limits**")
+            config['yolo_max_youtube'] = st.number_input(
+                "Max YouTube videos",
+                min_value=1, max_value=20,
+                value=int(config.get('yolo_max_youtube', 8)),
+                help="Maximum YouTube videos to auto-select"
+            )
+            config['yolo_max_youtube'] = str(config['yolo_max_youtube'])
+
+            config['yolo_max_podcast'] = st.number_input(
+                "Max Podcasts",
+                min_value=1, max_value=20,
+                value=int(config.get('yolo_max_podcast', 8)),
+                help="Maximum podcast episodes to auto-select"
+            )
+            config['yolo_max_podcast'] = str(config['yolo_max_podcast'])
+
+            config['yolo_max_article'] = st.number_input(
+                "Max Articles",
+                min_value=1, max_value=20,
+                value=int(config.get('yolo_max_article', 8)),
+                help="Maximum articles to auto-select"
+            )
+            config['yolo_max_article'] = str(config['yolo_max_article'])
+
+            config['yolo_max_reddit'] = st.number_input(
+                "Max Reddit threads",
+                min_value=1, max_value=20,
+                value=int(config.get('yolo_max_reddit', 9)),
+                help="Maximum Reddit threads to auto-select"
+            )
+            config['yolo_max_reddit'] = str(config['yolo_max_reddit'])
+
+        with yolo_col2:
+            st.markdown("**Reddit Filters**")
+            config['yolo_reddit_min_comments'] = st.number_input(
+                "Min comments OR",
+                min_value=0, max_value=100,
+                value=int(config.get('yolo_reddit_min_comments', 20)),
+                help="Minimum comments for Reddit thread to be eligible"
+            )
+            config['yolo_reddit_min_comments'] = str(config['yolo_reddit_min_comments'])
+
+            config['yolo_reddit_min_upvotes'] = st.number_input(
+                "Min upvotes",
+                min_value=0, max_value=500,
+                value=int(config.get('yolo_reddit_min_upvotes', 20)),
+                help="Minimum upvotes for Reddit thread to be eligible"
+            )
+            config['yolo_reddit_min_upvotes'] = str(config['yolo_reddit_min_upvotes'])
+
+            st.caption("Reddit threads must have at least the min comments OR min upvotes to be considered")
+
+        st.markdown("---")
+
         # Priority Sources
         st.markdown("### ⭐ Priority Sources")
         st.caption("Sources that will always be checked during discovery. Add sources from the Curate page or manually below.")
