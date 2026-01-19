@@ -388,20 +388,28 @@ class SpotifyAPI:
                         ep_name = ep.get('name', '').lower()
                         # Check if titles are similar (one contains most of the other)
                         if episode_title_lower[:30] in ep_name or ep_name[:30] in episode_title_lower:
+                            # Get episode-specific image (Spotify provides episode artwork)
+                            episode_images = ep.get('images', [])
+                            episode_image = episode_images[0]['url'] if episode_images else None
                             return {
                                 'episode_id': ep.get('id'),
                                 'episode_url': ep.get('external_urls', {}).get('spotify'),
                                 'name': ep.get('name'),
                                 'show_name': ep.get('show', {}).get('name', ''),
+                                'episode_image': episode_image,
                             }
-                    
+
                     # If no close match, return the first result
                     ep = episodes[0]
+                    # Get episode-specific image
+                    episode_images = ep.get('images', [])
+                    episode_image = episode_images[0]['url'] if episode_images else None
                     return {
                         'episode_id': ep.get('id'),
                         'episode_url': ep.get('external_urls', {}).get('spotify'),
                         'name': ep.get('name'),
                         'show_name': ep.get('show', {}).get('name', ''),
+                        'episode_image': episode_image,
                     }
             elif response.status_code == 401:
                 # Token expired or invalid, clear and retry once
@@ -629,7 +637,11 @@ class PodcastDatabaseManager:
         
         if 'thumbnail_url' in self.content_columns:
             insert_cols.append('thumbnail_url')
-            insert_vals.append(episode.get('image', '') or episode.get('podcast_image', ''))
+            # Prioritize episode-specific image (from Spotify) over show/podcast image
+            thumbnail = (episode.get('episode_image', '') or
+                        episode.get('image', '') or
+                        episode.get('podcast_image', ''))
+            insert_vals.append(thumbnail)
         
         if 'description' in self.content_columns:
             insert_cols.append('description')
@@ -969,15 +981,22 @@ def main():
             spotify_url=spotify_show_url
         )
         
-        # Try to get actual Spotify episode URL (direct link, not search)
+        # Try to get actual Spotify episode URL and episode-specific image
         spotify_url = None
+        episode_specific_image = None
         if spotify.enabled:
             episode_info = spotify.search_episode(title, podcast_title)
-            if episode_info and episode_info.get('episode_url'):
-                spotify_url = episode_info['episode_url']
-                print(f"      🔗 Found direct Spotify link for: {title[:40]}...")
+            if episode_info:
+                if episode_info.get('episode_url'):
+                    spotify_url = episode_info['episode_url']
+                    print(f"      🔗 Found direct Spotify link for: {title[:40]}...")
+                # Get episode-specific image from Spotify (not show image)
+                if episode_info.get('episode_image'):
+                    episode_specific_image = episode_info['episode_image']
+                    ep['episode_image'] = episode_specific_image  # Store for save_episode
+                    print(f"      🖼️  Found episode-specific image")
             time.sleep(0.1)  # Rate limiting
-        
+
         # Fall back to show URL or search URL if no direct episode link found
         if not spotify_url:
             spotify_url = spotify_show_url or discovery.generate_spotify_search_url(title, podcast_title)
