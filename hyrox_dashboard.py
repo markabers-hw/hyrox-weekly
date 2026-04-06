@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import time
+import json
 import requests
 from datetime import datetime, timedelta, timezone
 from jinja2 import Template
@@ -24,6 +25,10 @@ load_dotenv()
 
 # Anthropic API for AI blurb generation
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+
+# Resend API for newsletter email delivery
+RESEND_API_KEY = os.getenv('RESEND_API_KEY')
+RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL', 'Hyrox Weekly <newsletter@hyroxweekly.com>')
 
 # Supabase config (primary database)
 SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://ksqrakczmecdbzxwsvea.supabase.co')
@@ -865,6 +870,14 @@ def update_content_display_order(content_id, display_order):
     return result
 
 
+def update_content_published_date(content_id, new_date):
+    """Update the published_date for a content item (used to move items between weeks)"""
+    data = {'published_date': new_date.isoformat(), 'updated_at': datetime.now(timezone.utc).isoformat()}
+    result = supabase_patch('content_items', f'id=eq.{content_id}', data)
+    clear_content_caches()
+    return result
+
+
 def update_content_editorial_note(content_id, editorial_note):
     """Update the editorial_note field (used for podcast Spotify/Apple links)"""
     data = {'editorial_note': editorial_note, 'updated_at': datetime.now(timezone.utc).isoformat()}
@@ -886,15 +899,15 @@ def ensure_content_columns():
 # AI BLURB GENERATION
 # ============================================================================
 
-def generate_ai_blurb(title, description, platform, creator_name=None):
+def generate_ai_blurb(title, description, platform, creator_name=None, existing_blurbs=None):
     """Generate an AI blurb for content using Claude API"""
     if not ANTHROPIC_API_KEY:
         return None, "Anthropic API key not configured. Add ANTHROPIC_API_KEY to your .env file."
-    
+
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        
+
         # Build context based on platform
         platform_context = {
             'youtube': 'YouTube video',
@@ -902,14 +915,21 @@ def generate_ai_blurb(title, description, platform, creator_name=None):
             'article': 'article',
             'reddit': 'Reddit discussion'
         }.get(platform, 'content')
-        
+
         creator_info = f" by {creator_name}" if creator_name else ""
-        
+
+        # Build existing blurbs context to avoid repetition
+        existing_context = ""
+        if existing_blurbs:
+            existing_context = "\n\nOther blurbs already written for this edition (DO NOT reuse their opening words, sentence structures, or key phrases — vary your vocabulary and sentence patterns):\n"
+            for b in existing_blurbs[-10:]:
+                existing_context += f"- {b}\n"
+
         prompt = f"""Write a brief blurb for this {platform_context}{creator_info} for a Hyrox fitness newsletter.
 
 Title: {title}
 
-Original Description: {description[:1000] if description else 'No description available'}
+Original Description: {description[:1000] if description else 'No description available'}{existing_context}
 
 Requirements:
 - STRICT LIMIT: Keep under 230 characters (about 1-2 short sentences)
@@ -920,18 +940,20 @@ Requirements:
 - Focus on the specific value: what will readers learn or gain?
 - Do not use quotation marks around the blurb
 - Do not start with "This video..." or "In this episode..."
+- Use varied sentence structures and opening words — no two blurbs in this edition should read alike
+- NEVER use em dashes (—) anywhere in the text. Use commas, periods, colons, or separate sentences instead.
 
 Just return the blurb text, nothing else."""
 
         message = client.messages.create(
-            model="claude-3-5-haiku-20241022",
+            model="claude-haiku-4-5-20251001",
             max_tokens=100,
             messages=[
                 {"role": "user", "content": prompt}
             ]
         )
         
-        blurb = message.content[0].text.strip()
+        blurb = message.content[0].text.strip().replace('—', ', ')
         
         # Ensure we don't exceed 250 chars (hard limit for newsletter display)
         if len(blurb) > 250:
@@ -952,6 +974,159 @@ Just return the blurb text, nothing else."""
         return None, "Anthropic library not installed. Run: pip install anthropic"
     except Exception as e:
         return None, f"Error generating blurb: {str(e)}"
+
+
+DEFAULT_OVERVIEW_PROMPT = """Write a 2-3 sentence overview for this week's edition of a Hyrox fitness newsletter.
+
+Content included this week:
+{content_list}
+
+Requirements:
+- STRICT LIMIT: Under 500 characters
+- Professional sports journalism style (think Sports Illustrated)
+- Highlight the key themes and topics covered this week
+- Assume readers know what Hyrox is
+- Do not use quotation marks around the text
+- Be informative and direct, no hype or filler words
+- NEVER use em dashes anywhere in the text. Use commas, periods, colons, or separate sentences instead.
+- If there are notable podcast interviews or YouTube videos featuring specific athletes or well-known figures, call out up to 3 podcast interviews and up to 3 YouTube coverages by name. Only mention ones that genuinely feature a specific person (not generic training tips).
+
+Just return the overview text, nothing else."""
+
+
+def generate_edition_overview(content, prompt_template=None):
+    """Generate an AI overview blurb summarizing the edition's content"""
+    if not ANTHROPIC_API_KEY:
+        return None, "Anthropic API key not configured. Add ANTHROPIC_API_KEY to your .env file."
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        content_lines = []
+        for item in content:
+            creator = f" by {item.get('creator_name')}" if item.get('creator_name') else ""
+            content_lines.append(f"- {item['title']}{creator} ({item['platform']})")
+
+        template = prompt_template or DEFAULT_OVERVIEW_PROMPT
+        prompt = template.format(content_list=chr(10).join(content_lines))
+
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        blurb = message.content[0].text.strip().replace('—', ', ')
+        if len(blurb) > 500:
+            truncated = blurb[:497]
+            last_period = truncated.rfind('.')
+            if last_period > 400:
+                blurb = truncated[:last_period + 1]
+            else:
+                blurb = truncated + '...'
+
+        return blurb, None
+
+    except ImportError:
+        return None, "Anthropic library not installed. Run: pip install anthropic"
+    except Exception as e:
+        return None, f"Error generating overview: {str(e)}"
+
+
+# ============================================================================
+# SUBSCRIBER & EMAIL SEND MANAGEMENT (Resend)
+# ============================================================================
+
+def load_subscribers():
+    """Load all subscribers from Supabase newsletter_subscribers table"""
+    data = supabase_get('newsletter_subscribers', 'order=subscribed_at.desc')
+    if not data:
+        return []
+    # Normalize keys for backward compat with UI code
+    result = []
+    for row in data:
+        result.append({
+            'email': row.get('email', ''),
+            'name': row.get('name', ''),
+            'status': row.get('status', 'active'),
+            'added_at': row.get('subscribed_at', ''),
+            'source': row.get('source', 'manual'),
+        })
+    return result
+
+def add_subscriber(email, name='', subscribed_at=None):
+    """Add a subscriber via Supabase upsert. Returns (success, message)"""
+    email = email.strip().lower()
+    row = {
+        'email': email,
+        'name': name.strip() if name else '',
+        'status': 'active',
+        'source': 'manual',
+        'subscribed_at': subscribed_at or datetime.now(timezone.utc).isoformat(),
+        'unsubscribed_at': None,
+    }
+    result = supabase_upsert('newsletter_subscribers', row, on_conflict='email')
+    if result is not None:
+        return True, f"Added {email}"
+    return False, f"Failed to add {email}"
+
+def remove_subscriber(email):
+    """Unsubscribe an email via Supabase. Returns (success, message)"""
+    email = email.strip().lower()
+    data = {
+        'status': 'unsubscribed',
+        'unsubscribed_at': datetime.now(timezone.utc).isoformat(),
+    }
+    result = supabase_patch('newsletter_subscribers', f'email=eq.{email}', data)
+    if result is not None:
+        return True, f"Unsubscribed {email}"
+    return False, f"{email} not found"
+
+def get_active_subscribers():
+    """Get list of active subscribers from Supabase"""
+    data = supabase_get('newsletter_subscribers', 'status=eq.active&order=subscribed_at.desc')
+    if not data:
+        return []
+    return [{'email': r['email'], 'name': r.get('name', '')} for r in data]
+
+def send_newsletter_via_resend(html, subject, edition_number=None):
+    """Send newsletter to all active subscribers via Resend.
+    Returns (successes, failures) where each is a list of dicts."""
+    if not RESEND_API_KEY:
+        return [], [{'email': 'N/A', 'error': 'RESEND_API_KEY not configured in .env'}]
+
+    try:
+        import resend
+        resend.api_key = RESEND_API_KEY
+    except ImportError:
+        return [], [{'email': 'N/A', 'error': 'resend package not installed. Run: pip install resend'}]
+
+    subscribers = get_active_subscribers()
+    if not subscribers:
+        return [], [{'email': 'N/A', 'error': 'No active subscribers'}]
+
+    successes = []
+    failures = []
+
+    for sub in subscribers:
+        try:
+            params = {
+                "from": RESEND_FROM_EMAIL,
+                "to": [sub['email']],
+                "subject": subject,
+                "html": html,
+            }
+            if edition_number:
+                params["tags"] = [{"name": "edition", "value": str(edition_number)}]
+
+            result = resend.Emails.send(params)
+            email_id = result.get('id', '') if isinstance(result, dict) else getattr(result, 'id', '')
+            successes.append({'email': sub['email'], 'resend_id': email_id})
+        except Exception as e:
+            failures.append({'email': sub['email'], 'error': str(e)})
+
+    return successes, failures
 
 
 def update_content_ai_description(content_id, ai_description):
@@ -983,10 +1158,12 @@ def generate_blurbs_for_selected(week_start=None, week_end=None):
             )
             if blurb:
                 update_content_ai_description(item['id'], blurb)
+                update_content_use_ai_description(item['id'], True)
                 results.append({'id': item['id'], 'title': item['title'], 'success': True, 'blurb': blurb})
             else:
                 results.append({'id': item['id'], 'title': item['title'], 'success': False, 'error': error})
-    
+
+    clear_content_caches()
     return results
 
 
@@ -1024,7 +1201,7 @@ def regenerate_blurbs(week_start=None, week_end=None, platform_filter='all'):
 
 def get_editions():
     """Get recent editions"""
-    return supabase_get('weekly_editions', 'order=edition_number.desc&limit=10') or []
+    return supabase_get('weekly_editions', 'order=edition_number.desc&limit=50') or []
 
 
 def get_next_edition_number():
@@ -1055,6 +1232,364 @@ def create_edition_record(edition_number, content_ids):
         supabase_patch('content_items', f'id=eq.{content_id}', {'status': 'published'})
 
     return edition_id
+
+
+# ============================================================================
+# INSTAGRAM / SOCIAL FUNCTIONS
+# ============================================================================
+
+def get_edition_content(edition_id):
+    """Fetch published content for an edition, enriched with creator names.
+
+    Tries three strategies in order:
+    1. edition_content join table (canonical many-to-many link)
+    2. selected_for_edition_id column on content_items
+    3. Fallback: all published content within the edition's date range
+    """
+    items = []
+
+    # Strategy 1: edition_content join table
+    ec_rows = supabase_get('edition_content', f'edition_id=eq.{edition_id}&order=display_order.asc') or []
+    if ec_rows:
+        for row in ec_rows:
+            cid = row.get('content_id')
+            if cid:
+                item = supabase_get('content_items', f'id=eq.{cid}', single=True)
+                if item:
+                    items.append(item)
+
+    # Strategy 2: selected_for_edition_id
+    if not items:
+        items = supabase_get(
+            'content_items',
+            f'selected_for_edition_id=eq.{edition_id}&status=eq.published&order=engagement_score.desc'
+        ) or []
+
+    # Strategy 3: date-range fallback using edition's week boundaries
+    if not items:
+        edition = supabase_get('weekly_editions', f'id=eq.{edition_id}', single=True)
+        if edition:
+            start = edition.get('week_start_date', '')
+            end = edition.get('week_end_date', '')
+            if start and end:
+                # Try published content first, then selected content
+                for status in ['published', 'selected']:
+                    items = supabase_get(
+                        'content_items',
+                        f'status=eq.{status}&published_date=gte.{start}&published_date=lte.{end}T23:59:59&order=display_order.asc.nullslast,engagement_score.desc'
+                    ) or []
+                    if items:
+                        break
+
+    # Enrich with creator names
+    for item in items:
+        creator_id = item.get('creator_id')
+        if creator_id:
+            creator = supabase_get('creators', f'id=eq.{creator_id}', single=True)
+            item['creator_name'] = creator.get('name', 'Unknown') if creator else 'Unknown'
+        else:
+            item['creator_name'] = 'Unknown'
+
+    return items
+
+
+def generate_instagram_image(thumbnail_url, title, creator_name, platform):
+    """Generate a branded 1080x1080 Instagram post image.
+
+    Downloads the thumbnail, crops/resizes to square, applies dark gradient overlay,
+    platform badge, title text, creator name, and HYROXWEEKLY.COM branding.
+    Returns PNG bytes.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    from io import BytesIO
+
+    TARGET_SIZE = 1080
+    BRAND_COLOR = (204, 85, 0)  # #CC5500
+
+    # Download thumbnail — try maxres first for best quality
+    img = None
+    if 'ytimg.com' in (thumbnail_url or ''):
+        maxres_url = thumbnail_url.replace('/hqdefault.jpg', '/maxresdefault.jpg').replace('/mqdefault.jpg', '/maxresdefault.jpg').replace('/sddefault.jpg', '/maxresdefault.jpg')
+        try:
+            resp = requests.get(maxres_url, timeout=10)
+            if resp.status_code == 200:
+                img = Image.open(BytesIO(resp.content)).convert('RGBA')
+        except Exception:
+            pass
+    if img is None:
+        try:
+            resp = requests.get(thumbnail_url, timeout=10)
+            resp.raise_for_status()
+            img = Image.open(BytesIO(resp.content)).convert('RGBA')
+        except Exception:
+            img = Image.new('RGBA', (TARGET_SIZE, TARGET_SIZE), (30, 30, 30, 255))
+
+    # Crop to square (center crop)
+    w, h = img.size
+    if w != h:
+        side = min(w, h)
+        left = (w - side) // 2
+        top = (h - side) // 2
+        img = img.crop((left, top, left + side, top + side))
+
+    # Resize to 1080x1080
+    img = img.resize((TARGET_SIZE, TARGET_SIZE), Image.LANCZOS)
+
+    # Load fonts
+    try:
+        font_title = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 48)
+        font_creator = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 36)
+        font_badge = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 26)
+        font_brand = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 22)
+    except Exception:
+        font_title = ImageFont.load_default()
+        font_creator = font_title
+        font_badge = font_title
+        font_brand = font_title
+
+    # Measure text block height to size the dark band
+    margin = 50
+    max_text_width = TARGET_SIZE - 2 * margin
+    temp_draw = ImageDraw.Draw(img)
+
+    # Word-wrap title
+    words = title.split()
+    lines = []
+    current_line = ""
+    for word in words:
+        test_line = f"{current_line} {word}".strip()
+        bbox = temp_draw.textbbox((0, 0), test_line, font=font_title)
+        if bbox[2] - bbox[0] <= max_text_width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = word
+    if current_line:
+        lines.append(current_line)
+
+    # Limit to 3 lines
+    if len(lines) > 3:
+        lines = lines[:3]
+        lines[-1] = lines[-1][:len(lines[-1])-3] + '...'
+
+    # Calculate band height: title + creator + featured line + padding
+    line_height = 56
+    title_block_height = len(lines) * line_height
+    band_height = title_block_height + 110  # creator line + featured line + padding
+    band_top = TARGET_SIZE - band_height
+
+    # Resize image to fit above the band — crop the bottom portion
+    # so the thumbnail fills the top area and the band sits below it
+    img_cropped_height = band_top
+    # Scale image to fill the top area
+    img = img.resize((TARGET_SIZE, TARGET_SIZE), Image.LANCZOS)
+
+    # Create overlay: light gradient for badge area at top, solid dark band at bottom
+    overlay = Image.new('RGBA', (TARGET_SIZE, TARGET_SIZE), (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+
+    # Light overlay on top 12% for badge visibility
+    for y in range(0, int(TARGET_SIZE * 0.12)):
+        progress = 1.0 - (y / (TARGET_SIZE * 0.12))
+        alpha = int(90 * progress)
+        overlay_draw.line([(0, y), (TARGET_SIZE, y)], fill=(0, 0, 0, alpha))
+
+    # Short gradient transition just above the band
+    gradient_zone = 60
+    for y in range(band_top - gradient_zone, band_top):
+        progress = (y - (band_top - gradient_zone)) / gradient_zone
+        alpha = int(230 * progress)
+        overlay_draw.line([(0, y), (TARGET_SIZE, y)], fill=(0, 0, 0, alpha))
+
+    # Solid dark band at bottom
+    overlay_draw.rectangle(
+        [0, band_top, TARGET_SIZE, TARGET_SIZE],
+        fill=(0, 0, 0, 230)
+    )
+
+    img = Image.alpha_composite(img, overlay)
+    draw = ImageDraw.Draw(img)
+
+    # Platform badge (top-left)
+    badge_map = {
+        'youtube': 'VIDEO',
+        'podcast': 'PODCAST',
+        'article': 'ARTICLE',
+        'reddit': 'DISCUSSION',
+        'instagram': 'INSTAGRAM',
+    }
+    badge_text = badge_map.get(platform, 'CONTENT')
+    badge_bbox = draw.textbbox((0, 0), badge_text, font=font_badge)
+    badge_w = badge_bbox[2] - badge_bbox[0] + 24
+    badge_h = badge_bbox[3] - badge_bbox[1] + 16
+    badge_x, badge_y = 40, 40
+    draw.rounded_rectangle(
+        [badge_x, badge_y, badge_x + badge_w, badge_y + badge_h],
+        radius=8,
+        fill=BRAND_COLOR
+    )
+    draw.text(
+        (badge_x + 12, badge_y + 8),
+        badge_text,
+        fill=(255, 255, 255),
+        font=font_badge
+    )
+
+    # Draw text in the dark band
+    text_y = band_top + 20
+
+    # Title lines
+    for i, line in enumerate(lines):
+        draw.text(
+            (margin, text_y + i * line_height),
+            line,
+            fill=(255, 255, 255),
+            font=font_title
+        )
+
+    # Creator name — prominent
+    creator_y = text_y + title_block_height + 8
+    draw.text(
+        (margin, creator_y),
+        creator_name,
+        fill=(255, 255, 255),
+        font=font_creator
+    )
+
+    # "Featured in Hyrox Weekly" — subtle at bottom
+    brand_text = "Featured in Hyrox Weekly"
+    brand_y = TARGET_SIZE - 42
+    draw.text(
+        (margin, brand_y),
+        brand_text,
+        fill=BRAND_COLOR,
+        font=font_brand
+    )
+
+    # Convert to RGB and return PNG bytes
+    img = img.convert('RGB')
+    buffer = BytesIO()
+    img.save(buffer, format='PNG', quality=95)
+    return buffer.getvalue()
+
+
+def generate_instagram_caption(title, description, platform, creator_name, creator_instagram=None, existing_captions=None, content_url=None):
+    """Generate an Instagram-optimized caption using Claude AI.
+
+    Returns (caption_text, error_message). On success error_message is None.
+    """
+    if not ANTHROPIC_API_KEY:
+        return None, "Anthropic API key not configured. Add ANTHROPIC_API_KEY to your .env file."
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        platform_label = {
+            'youtube': 'YouTube video',
+            'podcast': 'podcast episode',
+            'article': 'article',
+            'reddit': 'Reddit discussion',
+        }.get(platform, 'content')
+
+        creator_tag = f"@{creator_instagram}" if creator_instagram else creator_name
+
+        existing_context = ""
+        if existing_captions:
+            existing_context = "\n\nOther captions already written for this batch (DO NOT reuse their hook lines, opening words, sentence structures, or phrases — each caption must feel completely different):\n"
+            for c in existing_captions[-5:]:
+                existing_context += f"---\n{c[:300]}\n"
+
+        url_instruction = f"\n- Include the content URL on its own line before the hashtags: {content_url}" if content_url else ""
+
+        prompt = f"""Write an Instagram caption for @hyroxweekly featuring this {platform_label} by {creator_name}.
+
+Title: {title}
+Creator: {creator_name}
+Creator Instagram: {creator_tag}
+Description: {(description or 'No description available')[:800]}{existing_context}
+
+IMPORTANT FRAMING: Hyrox Weekly is a newsletter that curates and features other creators' content — we do NOT own this content. Make it clear this is {creator_name}'s work that we are highlighting/featuring.
+
+Requirements:
+- Start with a compelling hook line (question or bold statement) — max 10 words
+- 2-3 sentences summarizing the key value of this content
+- Credit the creator prominently: e.g. "{creator_tag} breaks down...", "Great piece from {creator_tag}..."{url_instruction}
+- Include a call-to-action: "Featured in this week's Hyrox Weekly — link in bio"
+- End with 8-12 relevant hashtags on a new line, always include: #hyrox #hyroxweekly #hyroxtraining
+- Other good hashtags: #hybridfitness #functionalfitness #hyroxrace #fitnessrace #endurance #fitnesscommunity
+- Keep total caption under 2000 characters
+- Tone: energetic but authentic, like a knowledgeable fitness friend
+- Do NOT use emojis excessively (max 3-4 total)
+- Vary your opening style, sentence structure, and vocabulary from other captions in this batch
+- NEVER use em dashes (—) anywhere in the text. Use commas, periods, colons, or separate sentences instead.
+
+Return only the caption text, nothing else."""
+
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        caption = message.content[0].text.strip().replace('—', ', ')
+        return caption, None
+
+    except ImportError:
+        return None, "Anthropic library not installed. Run: pip install anthropic"
+    except Exception as e:
+        return None, f"Error generating caption: {str(e)}"
+
+
+def lookup_creator_instagram(creator_name):
+    """Cross-reference a creator name with the athletes table to find an Instagram handle."""
+    if not creator_name or creator_name == 'Unknown':
+        return None
+
+    # Try exact match first
+    athlete = supabase_get(
+        'athletes',
+        f'name=ilike.{quote(creator_name)}&limit=1',
+        single=True
+    )
+    if athlete and athlete.get('instagram_handle'):
+        return athlete['instagram_handle']
+
+    # Try partial match (creator name contains athlete name or vice versa)
+    athletes = supabase_get('athletes', 'instagram_handle=not.is.null&limit=100') or []
+    creator_lower = creator_name.lower()
+    for athlete in athletes:
+        athlete_name = (athlete.get('name') or '').lower()
+        if athlete_name and (athlete_name in creator_lower or creator_lower in athlete_name):
+            return athlete.get('instagram_handle')
+
+    return None
+
+
+def save_instagram_post(edition_id, content_id, caption, ai_caption=None, status='draft'):
+    """Save an Instagram post draft to the instagram_posts table."""
+    data = {
+        'edition_id': edition_id,
+        'content_id': content_id,
+        'post_type': 'feed',
+        'caption': caption,
+        'ai_caption': ai_caption or caption,
+        'status': status,
+        'created_at': datetime.now(timezone.utc).isoformat(),
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+    }
+    return supabase_post('instagram_posts', data)
+
+
+def get_instagram_posts_for_edition(edition_id):
+    """Get all saved Instagram posts for a given edition."""
+    return supabase_get(
+        'instagram_posts',
+        f'edition_id=eq.{edition_id}&order=created_at.desc'
+    ) or []
 
 
 # ============================================================================
@@ -1307,6 +1842,7 @@ def generate_blurbs_for_yolo(week_start, week_end):
 
     generated = 0
     failed = 0
+    edition_blurbs = []
 
     for item in needs_blurb:
         try:
@@ -1317,9 +1853,11 @@ def generate_blurbs_for_yolo(week_start, week_end):
                 title=item.get('title', ''),
                 description=item.get('description', ''),
                 platform=item.get('platform'),
-                creator_name=creator_name
+                creator_name=creator_name,
+                existing_blurbs=edition_blurbs
             )
             if blurb:
+                edition_blurbs.append(blurb)
                 # Update with AI blurb and set use_ai_description=true
                 supabase_patch('content_items', f'id=eq.{item["id"]}', {
                     'ai_description': blurb,
@@ -1953,7 +2491,7 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
 <nav class="nav">
 <a href="/" class="nav-brand">{{ newsletter_name }}</a>
 <div class="nav-links">
-<a href="/archive">Archive</a>
+<a href="/archive">All Issues</a>
 <a href="/#subscribe">Subscribe</a>
 </div>
 </nav>
@@ -2081,16 +2619,12 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
 <div class="subscribe-box" id="subscribe">
 <h3>Never Miss an Edition</h3>
 <p>Get the best Hyrox content delivered to your inbox every week.</p>
-{% if beehiiv_embed_code %}
-{{ beehiiv_embed_code | safe }}
-{% else %}
-<a href="https://hyroxweekly.com" class="cta-button" style="margin-top: 10px;">Subscribe Free</a>
-{% endif %}
+<a href="https://hyroxweekly.com/#subscribe" class="cta-button" style="margin-top: 10px;">Subscribe Free</a>
 </div>
 
 <!-- Archive Navigation -->
 <div class="archive-nav">
-<a href="/archive">← Back to Archive</a>
+<a href="/archive">← All Issues</a>
 <a href="/archive">View All Editions →</a>
 </div>
 
@@ -2189,7 +2723,10 @@ def organize_content_for_newsletter(content, config=None):
     # Sort each video category by display_order
     for cat in videos:
         videos[cat] = sorted(videos[cat], key=lambda x: x.get('display_order') or 999)
-    
+
+    # Sort video categories by their lowest display_order item
+    videos = dict(sorted(videos.items(), key=lambda kv: min((x.get('display_order') or 999) for x in kv[1])))
+
     # Sort podcasts, articles, reddit by display_order
     podcasts = sorted(podcasts, key=lambda x: x.get('display_order') or 999)
     articles = sorted(articles, key=lambda x: x.get('display_order') or 999)
@@ -2199,13 +2736,13 @@ def organize_content_for_newsletter(content, config=None):
 
 
 @st.cache_data(ttl=3600)  # Cache for 1 hour (weeks don't change often)
-def generate_week_options(num_weeks=5):
+def generate_week_options(num_weeks=12):
     """Generate a list of week options for selectors"""
     today = datetime.now()
     weeks = []
     
     for i in range(num_weeks):
-        # Calculate Monday of that week
+        # Calculate Monday of that week (editions run Mon-Sun)
         days_since_monday = today.weekday()
         week_start = today - timedelta(days=days_since_monday + (i * 7))
         week_end = week_start + timedelta(days=6)
@@ -2249,8 +2786,10 @@ def generate_newsletter_html(content, edition_number, config=None, selected_athl
     if reddit_posts: parts.append(f"{len(reddit_posts)} community discussions")
     content_summary = ', '.join(parts)
     
-    # Use config or defaults
-    if config:
+    # Use custom overview if provided, otherwise auto-generate
+    if config and config.get('intro_override'):
+        intro = f"This week we've curated {content_summary} of the best Hyrox content. {config['intro_override']}"
+    elif config:
         intro = config.get('intro_template', "Welcome! This week we've curated {content_summary} of the best Hyrox content.").format(content_summary=content_summary)
     else:
         intro = f"Welcome! This week we've curated {content_summary} of the best Hyrox content."
@@ -2333,8 +2872,10 @@ def generate_beehiiv_html(content, edition_number, config=None, selected_athlete
     if reddit_posts: parts.append(f"{len(reddit_posts)} community discussions")
     content_summary = ', '.join(parts)
     
-    # Use config or defaults
-    if config:
+    # Use custom overview if provided, otherwise auto-generate
+    if config and config.get('intro_override'):
+        intro = f"This week we've curated {content_summary} of the best Hyrox content. {config['intro_override']}"
+    elif config:
         intro = config.get('intro_template', "Welcome! This week we've curated {content_summary} of the best Hyrox content.").format(content_summary=content_summary)
     else:
         intro = f"Welcome! This week we've curated {content_summary} of the best Hyrox content."
@@ -2412,8 +2953,10 @@ def generate_website_html(content, edition_number, config=None, selected_athlete
     if reddit_posts: parts.append(f"{len(reddit_posts)} community discussions")
     content_summary = ', '.join(parts)
     
-    # Use config or defaults
-    if config:
+    # Use custom overview if provided, otherwise auto-generate
+    if config and config.get('intro_override'):
+        intro = f"This week we've curated {content_summary} of the best Hyrox content. {config['intro_override']}"
+    elif config:
         intro = config.get('intro_template', "Welcome! This week we've curated {content_summary} of the best Hyrox content.").format(content_summary=content_summary)
     else:
         intro = f"Welcome! This week we've curated {content_summary} of the best Hyrox content."
@@ -2471,8 +3014,6 @@ def generate_website_html(content, edition_number, config=None, selected_athlete
         section_title_articles=config.get('section_title_articles', 'Worth Reading') if config else 'Worth Reading',
         section_title_reddit=config.get('section_title_reddit', 'Community Discussions') if config else 'Community Discussions',
         section_title_athletes=config.get('section_title_athletes', '🏃 Athletes to Follow') if config else '🏃 Athletes to Follow',
-        # Beehiiv embed
-        beehiiv_embed_code=config.get('beehiiv_embed_code', '<p style="color:#999;font-size:12px;">Subscribe form coming soon</p>') if config else '',
     )
     return html
 
@@ -2720,7 +3261,7 @@ def render_content_item(item, display_tz):
                     "Order",
                     min_value=1,
                     max_value=99,
-                    value=current_order if current_order < 999 else 1,
+                    value=min(current_order, 99) if current_order < 999 else 1,
                     key=f"order_{item['id']}",
                     help="Lower = first",
                     label_visibility="collapsed"
@@ -2862,6 +3403,28 @@ def render_content_item(item, display_tz):
                     )
                     st.success(f"✅ Added '{creator_name}' as priority source!")
                     st.rerun()
+
+        # Move to different week
+        with st.expander("📅 Move to Week", expanded=False):
+            move_weeks = generate_week_options(num_weeks=12)
+            # Exclude the "All Time" entry
+            move_weeks = [w for w in move_weeks if w['start'] is not None]
+            move_labels = [w['label'] for w in move_weeks]
+
+            move_selection = st.selectbox(
+                "Move to",
+                options=range(len(move_weeks)),
+                format_func=lambda i: move_labels[i],
+                key=f"move_week_{item['id']}",
+                label_visibility="collapsed"
+            )
+
+            if st.button("📅 Move", key=f"move_btn_{item['id']}", use_container_width=True):
+                target_week = move_weeks[move_selection]
+                # Set published_date to the Monday of the target week
+                update_content_published_date(item['id'], target_week['start'])
+                st.success(f"Moved to {target_week['label']}")
+                st.rerun()
 
 
 # ============================================================================
@@ -3173,7 +3736,7 @@ def main():
         
         page = st.radio(
             "Navigation",
-            ["🏠 Dashboard", "🔍 Discovery", "✅ Curation", "📰 Generate", "🏃 Athletes", "💎 Premium", "📊 Analytics", "⚙️ Settings"],
+            ["🏠 Dashboard", "🔍 Discovery", "✅ Curation", "📰 Generate", "📱 Social", "🏃 Athletes", "💎 Premium", "📊 Analytics", "⚙️ Settings"],
             label_visibility="collapsed"
         )
         
@@ -3315,11 +3878,12 @@ def main():
                 'end': week_end.date()
             })
         
+        current_idx = min(st.session_state['selected_week_idx'], len(weeks) - 1)
         selected_week = st.selectbox(
             "Week to discover content for",
             options=range(len(weeks)),
             format_func=lambda i: weeks[i]['label'],
-            index=st.session_state['selected_week_idx'],
+            index=current_idx,
             key="discovery_week"
         )
         
@@ -3432,61 +3996,71 @@ def main():
                 with st.spinner("Searching YouTube..."):
                     success, output, items_found, items_saved = run_discovery_script("youtube_discovery.py", week_start, week_end)
                     record_discovery_run('youtube', week_start_date, week_end_date, items_found, items_saved, 'completed' if success else 'failed')
+                    clear_content_caches()
                     if success:
                         st.success("YouTube discovery complete!")
                     else:
                         st.error("YouTube discovery failed")
                     with st.expander("View Output", expanded=True):
                         st.code(output)
-            
+                    st.rerun()
+
             st.markdown("### 🎙️ Podcasts")
             if st.button("Run Podcast Discovery", key="pod_btn", use_container_width=True):
                 with st.spinner("Searching podcasts..."):
                     success, output, items_found, items_saved = run_discovery_script("podcast_discovery.py", week_start, week_end)
                     record_discovery_run('podcast', week_start_date, week_end_date, items_found, items_saved, 'completed' if success else 'failed')
+                    clear_content_caches()
                     if success:
                         st.success("Podcast discovery complete!")
                     else:
                         st.error("Podcast discovery failed")
                     with st.expander("View Output", expanded=True):
                         st.code(output)
-        
+                    st.rerun()
+
         with col2:
             st.markdown("### 📰 Articles")
             if st.button("Run Article Discovery", key="art_btn", use_container_width=True):
                 with st.spinner("Searching RSS feeds..."):
                     success, output, items_found, items_saved = run_discovery_script("article_discovery.py", week_start, week_end)
                     record_discovery_run('article', week_start_date, week_end_date, items_found, items_saved, 'completed' if success else 'failed')
+                    clear_content_caches()
                     if success:
                         st.success("Article discovery complete!")
                     else:
                         st.error("Article discovery failed")
                     with st.expander("View Output", expanded=True):
                         st.code(output)
-            
+                    st.rerun()
+
             st.markdown("### 🔗 Reddit")
             if st.button("Run Reddit Discovery", key="red_btn", use_container_width=True):
                 with st.spinner("Searching Reddit..."):
                     success, output, items_found, items_saved = run_discovery_script("reddit_discovery.py", week_start, week_end)
                     record_discovery_run('reddit', week_start_date, week_end_date, items_found, items_saved, 'completed' if success else 'failed')
+                    clear_content_caches()
                     if success:
                         st.success("Reddit discovery complete!")
                     else:
                         st.error("Reddit discovery failed")
                     with st.expander("View Output", expanded=True):
                         st.code(output)
-            
+                    st.rerun()
+
             st.markdown("### 📸 Instagram")
             if st.button("Run Instagram Discovery", key="ig_btn", use_container_width=True):
                 with st.spinner("Searching Instagram hashtags..."):
                     success, output, items_found, items_saved = run_discovery_script("instagram_discovery.py", week_start, week_end)
                     record_discovery_run('instagram', week_start_date, week_end_date, items_found, items_saved, 'completed' if success else 'failed')
+                    clear_content_caches()
                     if success:
                         st.success("Instagram discovery complete!")
                     else:
                         st.error("Instagram discovery failed")
                     with st.expander("View Output", expanded=True):
                         st.code(output)
+                    st.rerun()
         
         st.markdown("---")
         
@@ -3551,33 +4125,37 @@ def main():
                         # Re-discover
                         success, output, items_found, items_saved = run_discovery_script("podcast_discovery.py", week_start, week_end)
                         record_discovery_run('podcast', week_start_date, week_end_date, items_found, items_saved, 'completed' if success else 'failed')
-                        
+                        clear_content_caches()
+
                         if success:
                             st.success(f"✅ Re-discovered {items_saved} podcast episodes!")
                         else:
                             st.error("Podcast discovery failed")
-                        
+
                         with st.expander("View Output", expanded=True):
                             st.code(output)
-            
+                    st.rerun()
+
             with col_rediscover2:
                 if st.button("🔄 Clear & Re-discover YouTube", use_container_width=True):
                     with st.spinner("Clearing YouTube and re-discovering..."):
                         # Clear
                         clear_results = clear_content_for_week(['youtube'], week_start_date, week_end_date)
                         st.info(f"Cleared {clear_results.get('youtube', 0)} YouTube videos")
-                        
+
                         # Re-discover
                         success, output, items_found, items_saved = run_discovery_script("youtube_discovery.py", week_start, week_end)
                         record_discovery_run('youtube', week_start_date, week_end_date, items_found, items_saved, 'completed' if success else 'failed')
-                        
+                        clear_content_caches()
+
                         if success:
                             st.success(f"✅ Re-discovered {items_saved} YouTube videos!")
                         else:
                             st.error("YouTube discovery failed")
-                        
+
                         with st.expander("View Output", expanded=True):
                             st.code(output)
+                    st.rerun()
             
             if st.button("🔄 Clear & Re-discover ALL Platforms", type="primary", use_container_width=True):
                 with st.spinner("Clearing all content and re-discovering..."):
@@ -3607,11 +4185,13 @@ def main():
                         total_saved += items_saved
                         progress.progress((i + 1) / len(scripts))
                     
+                    clear_content_caches()
                     status_text.text("Re-discovery complete!")
                     st.success(f"✅ Re-discovered {total_saved} total items!")
-                    
+
                     with st.expander("View Full Output", expanded=True):
                         st.code("\n".join(all_output))
+                    st.rerun()
         
         st.markdown("---")
         
@@ -3637,8 +4217,9 @@ def main():
                 results.append((name, success, output))
                 progress.progress((i + 1) / len(scripts))
             
+            clear_content_caches()
             status.text("Discovery complete!")
-            
+
             for name, success, output in results:
                 if success:
                     st.success(f"✅ {name} discovery complete")
@@ -3646,7 +4227,7 @@ def main():
                     st.error(f"❌ {name} discovery failed")
                     with st.expander(f"View {name} Output"):
                         st.code(output)
-            
+
             st.rerun()
     
     # ========================================================================
@@ -4255,9 +4836,57 @@ def main():
         col2.metric("🎙️ Podcasts", len(podcasts))
         col3.metric("📰 Articles", len(articles))
         col4.metric("🔗 Reddit", len(reddit))
-        
+
         st.markdown("---")
-        
+
+        # Edition Overview
+        st.markdown("### 📝 Edition Overview")
+        st.markdown("AI-generated intro blurb for this edition")
+
+        if 'edition_overview' not in st.session_state:
+            st.session_state['edition_overview'] = ''
+        if 'overview_prompt' not in st.session_state:
+            st.session_state['overview_prompt'] = DEFAULT_OVERVIEW_PROMPT
+
+        with st.expander("⚙️ Overview Prompt", expanded=False):
+            edited_prompt = st.text_area(
+                "Edit the prompt used to generate the overview",
+                value=st.session_state.get('overview_prompt', DEFAULT_OVERVIEW_PROMPT),
+                height=300,
+                key="overview_prompt_input"
+            )
+            if edited_prompt != st.session_state.get('overview_prompt', ''):
+                st.session_state['overview_prompt'] = edited_prompt
+            if st.button("🔄 Reset to Default", key="reset_overview_prompt"):
+                st.session_state['overview_prompt'] = DEFAULT_OVERVIEW_PROMPT
+                st.session_state['overview_prompt_input'] = DEFAULT_OVERVIEW_PROMPT
+                st.rerun()
+
+        if st.button("✨ Generate Overview", use_container_width=False):
+            with st.spinner("Generating overview..."):
+                blurb, error = generate_edition_overview(
+                    selected_content,
+                    prompt_template=st.session_state.get('overview_prompt')
+                )
+                if blurb:
+                    st.session_state['edition_overview'] = blurb
+                    st.session_state['edition_overview_input'] = blurb
+                    st.rerun()
+                else:
+                    st.error(error)
+
+        edited_overview = st.text_area(
+            "Edition overview (edit as needed)",
+            value=st.session_state.get('edition_overview', ''),
+            height=100,
+            max_chars=500,
+            key="edition_overview_input"
+        )
+        if edited_overview != st.session_state.get('edition_overview', ''):
+            st.session_state['edition_overview'] = edited_overview
+
+        st.markdown("---")
+
         # Athlete Spotlight Selection
         st.markdown("### 🏃 Athlete Spotlight")
         st.markdown("Select athletes to feature in this edition")
@@ -4324,7 +4953,8 @@ def main():
         if not selected_content:
             st.warning(f"No content selected for this week! Go to Curation, select the same week ({week_start_date} to {week_end_date}), and mark content as selected.")
         else:
-            edition_number = get_next_edition_number()
+            default_edition = get_next_edition_number()
+            edition_number = st.number_input("Edition Number", min_value=1, value=default_edition, step=1, key="edition_number_input")
             st.markdown(f"### 📰 Edition #{edition_number}")
             
             # Store week info for newsletter generation
@@ -4338,7 +4968,11 @@ def main():
                     config = st.session_state['newsletter_config'].copy()
                     config['week_start'] = week_start_date
                     config['week_end'] = week_end_date
-                    
+
+                    # Pass edition overview if set
+                    if st.session_state.get('edition_overview'):
+                        config['intro_override'] = st.session_state['edition_overview']
+
                     # Get selected athletes
                     selected_athletes_list = [a for a in all_athletes if a['id'] in selected_athlete_ids] if all_athletes else []
                     
@@ -4365,35 +4999,125 @@ def main():
                 st.markdown("---")
                 
                 # Export Tabs
-                export_tab1, export_tab2, export_tab3 = st.tabs(["🐝 Beehiiv Export", "🌐 Website Export", "📄 Standalone HTML"])
-                
+                export_tab1, export_tab2, export_tab3 = st.tabs(["📧 Email Send", "🌐 Website Export", "📄 Standalone HTML"])
+
                 with export_tab1:
-                    st.markdown("### Export for Beehiiv (Email)")
-                    
-                    st.info("""
-                    **Workflow:**
-                    1. Copy the HTML below
-                    2. In Beehiiv, create new post using your "Hyrox Weekly - Clean" template
-                    3. Type `/` → select **"HTML Snippet"**
-                    4. Paste the HTML
-                    5. **Web tab:** Enable "Hide post from feed"
-                    6. Preview, schedule, and send!
-                    """)
-                    
-                    st.text_area(
-                        "Beehiiv HTML (Select All + Copy):",
-                        st.session_state.get('newsletter_beehiiv', ''),
-                        height=150,
-                        key="beehiiv_html_copy",
-                    )
-                    
-                    st.download_button(
-                        "📥 Download Beehiiv HTML",
-                        st.session_state.get('newsletter_beehiiv', ''),
-                        file_name=f"beehiiv_edition_{st.session_state['edition_number']}.html",
-                        mime="text/html",
-                        use_container_width=True
-                    )
+                    st.markdown("### Send via Email (Resend)")
+
+                    if not RESEND_API_KEY:
+                        st.warning("""
+                        **Resend not configured.** To send newsletters via email:
+                        1. Sign up at [resend.com](https://resend.com)
+                        2. Add & verify your domain (hyroxweekly.com)
+                        3. Get your API key
+                        4. Add `RESEND_API_KEY=re_...` to your `.env` file
+                        5. Set `RESEND_FROM_EMAIL=Hyrox Weekly <newsletter@hyroxweekly.com>`
+                        6. Restart the dashboard
+                        """)
+
+                    # Subscriber management
+                    active_subs = get_active_subscribers()
+                    all_subs = load_subscribers()
+
+                    st.metric("Active Subscribers", len(active_subs))
+
+                    with st.expander("Manage Subscribers", expanded=False):
+                        # Add subscriber
+                        add_col1, add_col2, add_col3, add_col4 = st.columns([3, 2, 2, 1])
+                        with add_col1:
+                            new_email = st.text_input("Email", key="new_sub_email", placeholder="subscriber@example.com")
+                        with add_col2:
+                            new_name = st.text_input("Name (optional)", key="new_sub_name")
+                        with add_col3:
+                            new_date = st.date_input("Subscribed date", value=datetime.now().date(), key="new_sub_date")
+                        with add_col4:
+                            st.write("")  # spacing
+                            if st.button("Add", key="add_sub_btn"):
+                                if new_email:
+                                    sub_date = datetime.combine(new_date, datetime.min.time(), tzinfo=timezone.utc).isoformat()
+                                    ok, msg = add_subscriber(new_email, new_name, subscribed_at=sub_date)
+                                    if ok:
+                                        st.success(msg)
+                                        st.rerun()
+                                    else:
+                                        st.warning(msg)
+
+                        # List subscribers
+                        if all_subs:
+                            for i, sub in enumerate(all_subs):
+                                sub_col1, sub_col2, sub_col3 = st.columns([3, 1, 1])
+                                with sub_col1:
+                                    label = sub['email']
+                                    if sub.get('name'):
+                                        label = f"{sub['name']} ({sub['email']})"
+                                    status_icon = "✅" if sub.get('status') == 'active' else "❌"
+                                    st.text(f"{status_icon} {label}")
+                                with sub_col2:
+                                    st.caption(sub.get('added_at', '')[:10])
+                                with sub_col3:
+                                    if sub.get('status') == 'active':
+                                        if st.button("Remove", key=f"unsub_{i}"):
+                                            remove_subscriber(sub['email'])
+                                            st.rerun()
+                        else:
+                            st.info("No subscribers yet. Add some above.")
+
+                    st.markdown("---")
+
+                    # Send section
+                    edition_num = st.session_state.get('edition_number', '?')
+                    week_start = st.session_state.get('generate_week_start', '')
+                    week_end = st.session_state.get('generate_week_end', '')
+
+                    default_subject = f"Hyrox Weekly #{edition_num}"
+                    if week_start and week_end:
+                        default_subject += f": {week_start.strftime('%b %d')} - {week_end.strftime('%b %d, %Y')}"
+
+                    email_subject = st.text_input("Subject Line", value=default_subject, key="email_subject")
+
+                    if active_subs and RESEND_API_KEY:
+                        st.info(f"Ready to send to **{len(active_subs)} subscriber{'s' if len(active_subs) != 1 else ''}**")
+
+                        if st.button("📨 Send Newsletter", type="primary", use_container_width=True):
+                            st.session_state['confirm_send'] = True
+
+                        if st.session_state.get('confirm_send'):
+                            st.warning(f"Are you sure you want to send Edition #{edition_num} to {len(active_subs)} subscribers?")
+                            confirm_col1, confirm_col2 = st.columns(2)
+                            with confirm_col1:
+                                if st.button("Yes, send it", type="primary", key="confirm_send_yes"):
+                                    with st.spinner(f"Sending to {len(active_subs)} subscribers..."):
+                                        html = st.session_state.get('newsletter_beehiiv', st.session_state.get('newsletter_html', ''))
+                                        successes, failures = send_newsletter_via_resend(html, email_subject, edition_num)
+
+                                        if successes:
+                                            st.success(f"Sent to {len(successes)} subscriber{'s' if len(successes) != 1 else ''}")
+                                            for s in successes:
+                                                st.caption(f"✅ {s['email']} (ID: {s['resend_id'][:8]}...)")
+                                        if failures:
+                                            st.error(f"Failed for {len(failures)} subscriber{'s' if len(failures) != 1 else ''}")
+                                            for f_item in failures:
+                                                st.caption(f"❌ {f_item['email']}: {f_item['error']}")
+
+                                    st.session_state['confirm_send'] = False
+                            with confirm_col2:
+                                if st.button("Cancel", key="confirm_send_no"):
+                                    st.session_state['confirm_send'] = False
+                                    st.rerun()
+                    elif not RESEND_API_KEY:
+                        st.info("Configure Resend API key above to enable sending.")
+                    else:
+                        st.info("Add subscribers above to enable sending.")
+
+                    # Download raw HTML fallback
+                    with st.expander("Raw Email HTML"):
+                        st.download_button(
+                            "📥 Download Email HTML",
+                            st.session_state.get('newsletter_beehiiv', ''),
+                            file_name=f"email_edition_{st.session_state['edition_number']}.html",
+                            mime="text/html",
+                            use_container_width=True
+                        )
                 
                 with export_tab2:
                     st.markdown("### Export for Your Website")
@@ -5919,6 +6643,245 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                 st.write(f"**{status.title()}**: {count}")
     
     # ========================================================================
+    # SOCIAL (INSTAGRAM) PAGE
+    # ========================================================================
+    elif page == "📱 Social":
+        st.markdown("## 📱 Instagram Content Creator")
+        st.markdown("Generate branded Instagram posts from published newsletter content")
+
+        # ── Section 1: Edition Selector ──
+        st.markdown("### 1. Select Edition")
+        editions = get_editions()
+
+        if not editions:
+            st.warning("No editions found. Create a newsletter edition first.")
+        else:
+            edition_labels = [
+                f"Edition #{e['edition_number']} — {e.get('publish_date', 'N/A')} {'✅' if e.get('status') == 'published' else '📝'}"
+                for e in editions
+            ]
+            selected_edition_idx = st.selectbox(
+                "Edition",
+                range(len(editions)),
+                format_func=lambda i: edition_labels[i],
+            )
+            selected_edition = editions[selected_edition_idx]
+            edition_id = selected_edition['id']
+
+            # ── Section 2: Content Selection ──
+            st.markdown("### 2. Select Content to Promote")
+            content_items = get_edition_content(edition_id)
+
+            if not content_items:
+                st.info("No published content found for this edition. Content must have status 'published' and be linked via selected_for_edition_id.")
+            else:
+                # Platform filter
+                platforms_in_content = sorted(set(item.get('platform', '') for item in content_items))
+                platform_options = ["All"] + [
+                    f"{PLATFORM_CONFIG.get(p, {'emoji': '📺', 'name': p})['emoji']} {PLATFORM_CONFIG.get(p, {'emoji': '📺', 'name': p})['name']}"
+                    for p in platforms_in_content
+                ]
+                platform_filter = st.selectbox("Filter by content type", platform_options, key="ig_platform_filter")
+
+                if platform_filter != "All":
+                    # Map display label back to platform key
+                    selected_platform = platforms_in_content[platform_options.index(platform_filter) - 1]
+                    filtered_items = [item for item in content_items if item.get('platform') == selected_platform]
+                else:
+                    filtered_items = content_items
+
+                st.caption(f"Showing {len(filtered_items)} of {len(content_items)} content items. Select 3-5 to generate Instagram posts.")
+
+                # Initialize session state for selections
+                if 'ig_selected_ids' not in st.session_state:
+                    st.session_state['ig_selected_ids'] = set()
+
+                selected_items = []
+                for item in filtered_items:
+                    platform_cfg = PLATFORM_CONFIG.get(item.get('platform', ''), {'emoji': '📺', 'name': item.get('platform', '')})
+                    label = f"{platform_cfg['emoji']} {item['title'][:80]} — {item.get('creator_name', 'Unknown')}"
+                    checked = st.checkbox(label, key=f"ig_select_{item['id']}")
+                    if checked:
+                        selected_items.append(item)
+
+                selected_count = len(selected_items)
+                if selected_count > 0:
+                    if selected_count < 3:
+                        st.warning(f"Select at least 3 items ({selected_count} selected)")
+                    elif selected_count > 5:
+                        st.warning(f"Select at most 5 items ({selected_count} selected)")
+                    else:
+                        st.success(f"{selected_count} items selected")
+
+                # ── Section 3: Generate ──
+                st.markdown("### 3. Generate Instagram Posts")
+
+                can_generate = 3 <= selected_count <= 5
+                if st.button("Generate Instagram Posts", disabled=not can_generate, type="primary"):
+                    generated_posts = []
+                    progress_bar = st.progress(0, text="Starting generation...")
+
+                    for idx, item in enumerate(selected_items):
+                        progress_text = f"Generating post {idx + 1}/{selected_count}: {item['title'][:50]}..."
+                        progress_bar.progress((idx) / selected_count, text=progress_text)
+
+                        # Look up creator Instagram handle
+                        creator_name = item.get('creator_name', 'Unknown')
+                        creator_ig = lookup_creator_instagram(creator_name)
+
+                        # Generate image
+                        thumb_url = item.get('thumbnail_url', '')
+                        image_bytes = None
+                        if thumb_url:
+                            try:
+                                image_bytes = generate_instagram_image(
+                                    thumb_url,
+                                    item['title'],
+                                    creator_name,
+                                    item.get('platform', 'youtube')
+                                )
+                            except Exception as e:
+                                st.error(f"Image generation failed for '{item['title'][:40]}': {e}")
+
+                        # Generate caption (pass existing captions to avoid repetition)
+                        existing_captions = [p['ai_caption'] for p in generated_posts if p.get('ai_caption')]
+                        caption, caption_err = generate_instagram_caption(
+                            item['title'],
+                            item.get('description', ''),
+                            item.get('platform', 'youtube'),
+                            creator_name,
+                            creator_ig,
+                            existing_captions=existing_captions,
+                            content_url=item.get('url')
+                        )
+                        if caption_err:
+                            st.error(f"Caption error for '{item['title'][:40]}': {caption_err}")
+                            caption = f"Check out this great content from {creator_name}! Link in bio.\n\n#hyrox #hyroxweekly #hyroxtraining"
+
+                        generated_posts.append({
+                            'item': item,
+                            'image_bytes': image_bytes,
+                            'ai_caption': caption,
+                            'edited_caption': caption,
+                            'creator_ig': creator_ig,
+                        })
+
+                    progress_bar.progress(1.0, text="Done!")
+                    st.session_state['ig_generated_posts'] = generated_posts
+                    st.session_state['ig_edition_id'] = edition_id
+
+                # ── Section 4: Review & Export ──
+                if 'ig_generated_posts' in st.session_state and st.session_state.get('ig_edition_id') == edition_id:
+                    generated_posts = st.session_state['ig_generated_posts']
+
+                    st.markdown("### 4. Review & Export")
+                    st.markdown("---")
+
+                    all_images = {}
+                    all_captions = []
+
+                    for i, post in enumerate(generated_posts):
+                        item = post['item']
+                        platform_cfg = PLATFORM_CONFIG.get(item.get('platform', ''), {'emoji': '📺', 'name': item.get('platform', '')})
+
+                        st.markdown(f"#### {platform_cfg['emoji']} {item['title'][:70]}")
+
+                        col_img, col_caption = st.columns([1, 1])
+
+                        with col_img:
+                            if post['image_bytes']:
+                                st.image(post['image_bytes'], caption="Instagram Post Image", use_container_width=True)
+
+                                # Download button for individual image
+                                safe_title = "".join(c if c.isalnum() or c in (' ', '-', '_') else '' for c in item['title'][:40]).strip().replace(' ', '_')
+                                st.download_button(
+                                    "Download Image",
+                                    data=post['image_bytes'],
+                                    file_name=f"hyroxweekly_ig_{safe_title}.png",
+                                    mime="image/png",
+                                    key=f"dl_img_{i}"
+                                )
+                                all_images[f"hyroxweekly_ig_{safe_title}.png"] = post['image_bytes']
+                            else:
+                                st.warning("No image generated (missing thumbnail)")
+
+                        with col_caption:
+                            # AI-generated caption (read-only)
+                            st.text_area(
+                                "AI Generated",
+                                value=post['ai_caption'],
+                                height=200,
+                                disabled=True,
+                                key=f"ai_caption_{i}"
+                            )
+
+                            # Editable caption
+                            edit_key = f"edited_caption_{i}"
+                            if edit_key not in st.session_state:
+                                st.session_state[edit_key] = post['edited_caption']
+                            edited_caption = st.text_area(
+                                "Your Edit",
+                                height=200,
+                                key=edit_key
+                            )
+                            post['edited_caption'] = edited_caption
+                            char_count = len(edited_caption)
+                            st.caption(f"{char_count} / 2,200 characters")
+                            all_captions.append(f"--- Post {i+1}: {item['title'][:60]} ---\nAI GENERATED:\n{post['ai_caption']}\n\nEDITED:\n{edited_caption}")
+
+                        st.markdown("---")
+
+                    # ZIP download & save actions
+                    st.markdown("### Export All")
+                    col_zip, col_save = st.columns(2)
+
+                    with col_zip:
+                        if all_images:
+                            import zipfile
+                            from io import BytesIO
+                            zip_buffer = BytesIO()
+                            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                                for fname, img_data in all_images.items():
+                                    zf.writestr(fname, img_data)
+                                zf.writestr('captions.txt', "\n\n".join(all_captions))
+                            zip_buffer.seek(0)
+                            st.download_button(
+                                "Download All (ZIP)",
+                                data=zip_buffer.getvalue(),
+                                file_name=f"hyroxweekly_ig_edition_{selected_edition['edition_number']}.zip",
+                                mime="application/zip",
+                                key="dl_zip_all"
+                            )
+
+                    with col_save:
+                        if st.button("Save Drafts to Database", key="save_ig_drafts"):
+                            saved = 0
+                            for post in generated_posts:
+                                result = save_instagram_post(
+                                    edition_id,
+                                    post['item']['id'],
+                                    post['edited_caption'],
+                                    ai_caption=post['ai_caption'],
+                                    status='draft'
+                                )
+                                if result:
+                                    saved += 1
+                            if saved == len(generated_posts):
+                                st.success(f"Saved {saved} drafts to instagram_posts table!")
+                            else:
+                                st.warning(f"Saved {saved}/{len(generated_posts)} drafts. Some may have failed.")
+
+                    # Show previously saved posts
+                    existing_posts = get_instagram_posts_for_edition(edition_id)
+                    if existing_posts:
+                        with st.expander(f"Saved Drafts ({len(existing_posts)} posts)"):
+                            for ep in existing_posts:
+                                status_icon = {"draft": "📝", "scheduled": "📅", "posted": "✅"}.get(ep.get('status', ''), "❓")
+                                st.markdown(f"{status_icon} **Content ID {ep.get('content_id')}** — {ep.get('status', 'draft')}")
+                                st.text(ep.get('caption', '')[:200] + ('...' if len(ep.get('caption', '')) > 200 else ''))
+                                st.markdown("---")
+
+    # ========================================================================
     # SETTINGS PAGE
     # ========================================================================
     elif page == "⚙️ Settings":
@@ -6022,24 +6985,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
             )
         
         st.markdown("---")
-        
-        # Beehiiv Subscribe Embed
-        st.markdown("### 📬 Website Subscribe Form (Beehiiv Embed)")
-        st.caption("This embed code appears on the website archive pages. Get it from Beehiiv → Grow → Subscribe Forms → Embed.")
-        
-        config['beehiiv_embed_code'] = st.text_area(
-            "Beehiiv Embed Code",
-            value=config.get('beehiiv_embed_code', ''),
-            height=150,
-            help="Paste your Beehiiv subscribe form embed code here (the full HTML/iframe code)",
-            placeholder='<iframe src="https://embeds.beehiiv.com/..." ...></iframe>'
-        )
-        
-        if not config.get('beehiiv_embed_code'):
-            st.info("💡 To get your embed code: Beehiiv Dashboard → Grow → Subscribe Forms → Select a form → Embed → Copy the code")
-        
-        st.markdown("---")
-        
+
         # Discovery Settings
         st.markdown("### 🔍 Discovery Settings")
         

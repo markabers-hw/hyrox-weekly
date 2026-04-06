@@ -87,12 +87,6 @@
   force = true
 
 
-[[redirects]]
-  from = "/subscribe/*"
-  to = "https://app.beehiiv.com/subscribe/:splat"
-  status = 301
-  force = true
-
 # Custom 404
 [[redirects]]
   from = "/*"

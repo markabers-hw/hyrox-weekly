@@ -16,78 +16,17 @@ const supabase = createClient(
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Beehiiv API configuration
-const BEEHIIV_API_KEY = process.env.BEEHIIV_API_KEY;
-const BEEHIIV_PUBLICATION_ID = process.env.BEEHIIV_PUBLICATION_ID;
-const BEEHIIV_API_URL = 'https://api.beehiiv.com/v2';
-
-// Tag a subscriber as premium in Beehiiv
-async function tagBeehiivSubscriber(email, isPremium) {
-  if (!BEEHIIV_API_KEY || !BEEHIIV_PUBLICATION_ID) {
-    console.log('Beehiiv not configured, skipping tag update');
-    return;
-  }
-
+// Ensure newsletter subscriber exists (for premium tagging)
+async function ensureNewsletterSubscriber(email) {
   try {
-    // First, find the subscriber by email
-    const searchResponse = await fetch(
-      `${BEEHIIV_API_URL}/publications/${BEEHIIV_PUBLICATION_ID}/subscriptions?email=${encodeURIComponent(email)}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${BEEHIIV_API_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    if (!searchResponse.ok) {
-      console.error('Failed to search Beehiiv subscriber:', await searchResponse.text());
-      return;
-    }
-
-    const searchData = await searchResponse.json();
-    const subscriber = searchData.data?.[0];
-
-    if (!subscriber) {
-      console.log(`Subscriber ${email} not found in Beehiiv`);
-      return;
-    }
-
-    // Update the subscriber with premium tag
-    const currentTags = subscriber.custom_fields || [];
-    const premiumTag = 'premium';
-
-    let newTags;
-    if (isPremium) {
-      // Add premium tag if not present
-      newTags = currentTags.includes(premiumTag) ? currentTags : [...currentTags, premiumTag];
-    } else {
-      // Remove premium tag
-      newTags = currentTags.filter(tag => tag !== premiumTag);
-    }
-
-    // Update subscriber tags via PATCH
-    const updateResponse = await fetch(
-      `${BEEHIIV_API_URL}/publications/${BEEHIIV_PUBLICATION_ID}/subscriptions/${subscriber.id}`,
-      {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${BEEHIIV_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          custom_fields: [{ name: 'subscription_status', value: isPremium ? 'premium' : 'free' }]
-        })
-      }
-    );
-
-    if (updateResponse.ok) {
-      console.log(`Beehiiv subscriber ${email} tagged as ${isPremium ? 'premium' : 'free'}`);
-    } else {
-      console.error('Failed to update Beehiiv subscriber:', await updateResponse.text());
-    }
+    await supabase
+      .from('newsletter_subscribers')
+      .upsert(
+        { email: email.toLowerCase(), status: 'active', source: 'website', subscribed_at: new Date().toISOString() },
+        { onConflict: 'email', ignoreDuplicates: true }
+      );
   } catch (error) {
-    console.error('Error syncing with Beehiiv:', error);
+    console.error('Error upserting newsletter subscriber:', error);
   }
 }
 
@@ -283,8 +222,8 @@ exports.handler = async (event) => {
         const emailSent = await sendMagicLinkEmail(email, magicToken, earlyBirdNumber);
         console.log(`Email send result: ${emailSent}`);
 
-        // Sync with Beehiiv - tag as premium
-        await tagBeehiivSubscriber(email, true);
+        // Ensure newsletter subscriber record exists
+        await ensureNewsletterSubscriber(email);
 
         console.log(`Subscriber processed: ${email} (${tier}, early bird #${earlyBirdNumber})`);
         break;
@@ -313,13 +252,6 @@ exports.handler = async (event) => {
         const subscription = stripeEvent.data.object;
         const customerId = subscription.customer;
 
-        // Get subscriber email before updating
-        const { data: subscriberData } = await supabase
-          .from('subscribers')
-          .select('email')
-          .eq('stripe_customer_id', customerId)
-          .single();
-
         const { error } = await supabase
           .from('subscribers')
           .update({
@@ -330,11 +262,6 @@ exports.handler = async (event) => {
           .eq('stripe_customer_id', customerId);
 
         if (error) console.error('Update error:', error);
-
-        // Sync with Beehiiv - remove premium tag
-        if (subscriberData?.email) {
-          await tagBeehiivSubscriber(subscriberData.email, false);
-        }
 
         console.log(`Subscription cancelled for customer: ${customerId}`);
         break;

@@ -150,6 +150,48 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
   font-size: 12px;
   margin-top: 12px;
 }
+.subscribe-inline-form { max-width: 480px; margin: 0 auto; }
+.subscribe-fields {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.subscribe-fields input[type="email"] {
+  flex: 1;
+  padding: 14px 16px;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.subscribe-fields input[type="email"]::placeholder { color: rgba(255,255,255,0.4); }
+.subscribe-fields input[type="email"]:focus { border-color: #2563eb; }
+.subscribe-fields button {
+  padding: 14px 24px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+.subscribe-fields button:hover { background: #1d4ed8; }
+.subscribe-fields button:disabled { opacity: 0.6; cursor: not-allowed; }
+.subscribe-msg {
+  margin-top: 12px;
+  font-size: 14px;
+  min-height: 20px;
+}
+.subscribe-msg.success { color: #4ade80; }
+.subscribe-msg.error { color: #f87171; }
 
 /* Sections */
 .section {
@@ -402,7 +444,7 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
   <div class="nav-container">
     <a href="/" class="nav-brand">HYROX WEEKLY</a>
     <div class="nav-links">
-      <a href="/archive">Archive</a>
+      <a href="/archive">All Issues</a>
       <a href="#premium" class="premium">Premium</a>
       <a href="#subscribe" class="nav-cta">Subscribe</a>
     </div>
@@ -437,10 +479,13 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
     <h3>Join the Community</h3>
     <p>Get every edition delivered straight to your inbox.</p>
    
-    <!-- Beehiiv Embed - EXACT CODE FROM BEEHIIV -->
-    <script async src="https://subscribe-forms.beehiiv.com/embed.js"></script>
-    <iframe src="https://subscribe-forms.beehiiv.com/ae6c5902-dbf8-4632-83aa-4384fae024a1" class="beehiiv-embed" data-test-id="beehiiv-embed" frameborder="0" scrolling="no" style="width: 100%; max-width: 560px; height: 207px; margin: 0 auto; display: block; border-radius: 8px; background-color: transparent;"></iframe>
-    
+    <form id="subscribe-form" class="subscribe-inline-form">
+      <div class="subscribe-fields">
+        <input type="email" id="subscribe-email" placeholder="your@email.com" required>
+        <button type="submit" id="subscribe-btn">Subscribe Free</button>
+      </div>
+      <p id="subscribe-msg" class="subscribe-msg" style="display:none;"></p>
+    </form>
     <p class="subscribe-note">No spam. Unsubscribe anytime.</p>
 
   </div>
@@ -498,7 +543,7 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
     <div class="latest-edition">
       <div class="latest-edition-header">
         <h3>📬 Latest Newsletter</h3>
-        <span class="latest-edition-date" id="latest-date">January 19 - January 25</span>
+        <span class="latest-edition-date" id="latest-date">Issue 16: March 30 - April 5</span>
       </div>
       <div class="latest-edition-content">
         <h2 class="latest-edition-title" id="latest-title">Hyrox Weekly</h2>
@@ -561,7 +606,7 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
     
     <div class="footer-column">
       <h4>Newsletter</h4>
-      <a href="/archive">Archive</a>
+      <a href="/archive">All Issues</a>
       <a href="#subscribe">Subscribe</a>
       <a href="#premium">Premium</a>
     </div>
@@ -583,6 +628,44 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
     <p>© 2025 Hyrox Weekly. Not affiliated with, endorsed by, or sponsored by HYROX World GmbH or Upsolut Sports GmbH.</p>
   </div>
 </footer>
+
+<script>
+document.getElementById('subscribe-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const btn = document.getElementById('subscribe-btn');
+  const msg = document.getElementById('subscribe-msg');
+  const email = document.getElementById('subscribe-email').value.trim();
+
+  btn.disabled = true;
+  btn.textContent = 'Subscribing...';
+  msg.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      msg.textContent = "You're subscribed! Check your inbox for a welcome email.";
+      msg.className = 'subscribe-msg success';
+      document.getElementById('subscribe-email').value = '';
+    } else {
+      msg.textContent = data.error || 'Something went wrong. Please try again.';
+      msg.className = 'subscribe-msg error';
+    }
+  } catch {
+    msg.textContent = 'Network error. Please try again.';
+    msg.className = 'subscribe-msg error';
+  }
+
+  msg.style.display = 'block';
+  btn.disabled = false;
+  btn.textContent = 'Subscribe Free';
+});
+</script>
 
 </body>
 </html>
