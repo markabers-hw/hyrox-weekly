@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
+import time
 from dateutil import parser as date_parser
 
 load_dotenv()
@@ -129,9 +130,27 @@ class YouTubeDiscovery:
                 # Fall back to searching by channel name
                 search_params['q'] = channel_name
             
-            search_response = self.youtube.search().list(**search_params).execute()
-            return search_response.get('items', [])
-            
+            # Retry once on a per-minute quota rate limit. The YouTube
+            # Search API enforces a per-minute spike limit (~100 queries
+            # per 100s window) that's easy to trip when looping over all
+            # priority channels back-to-back.
+            for attempt in range(2):
+                try:
+                    search_response = self.youtube.search().list(**search_params).execute()
+                    return search_response.get('items', [])
+                except HttpError as e:
+                    status = getattr(getattr(e, 'resp', None), 'status', None)
+                    is_rate_limited = (
+                        status == 429
+                        or 'rateLimitExceeded' in str(e)
+                        or 'Quota exceeded' in str(e)
+                    )
+                    if is_rate_limited and attempt == 0:
+                        print(f"   ⏳ Rate-limited on '{channel_name}', sleeping 30s and retrying once...")
+                        time.sleep(30)
+                        continue
+                    raise
+
         except HttpError as e:
             print(f"   ❌ Error searching channel '{channel_name}': {e}")
             return []
@@ -318,7 +337,7 @@ class YouTubeDiscovery:
         priority_sources = self.get_priority_youtube_sources()
         if priority_sources:
             print(f"\n⭐ Checking {len(priority_sources)} priority YouTube channels...")
-            for source in priority_sources:
+            for i, source in enumerate(priority_sources):
                 channel_name = source['source_name']
                 channel_id = source.get('source_id')  # May be None
                 print(f"   ⭐ Searching: '{channel_name}'{'  (ID: ' + channel_id + ')' if channel_id else ''}...")
@@ -326,6 +345,10 @@ class YouTubeDiscovery:
                 if channel_videos:
                     print(f"      Found {len(channel_videos)} videos")
                     videos.extend(channel_videos)
+                # Stay under YouTube's ~100 search queries / 100s spike
+                # limit when iterating over many priority channels.
+                if i < len(priority_sources) - 1:
+                    time.sleep(0.7)
         
         # Remove duplicates by video ID
         seen_ids = set()
