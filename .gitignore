@@ -45,3 +45,10 @@ newsletter_preview.html
 
 # Zip backups
 *.zip
+
+# Large local media library (backed up separately, not suitable for git)
+Social/
+
+# Local content dumps
+content_items_full.json
+content_items_listing.txt
