@@ -1,4 +1,4 @@
-const NTFY_TOPIC = process.env.NTFY_TOPIC || "hyroxweekly-subs-x7k9m2";
+const NTFY_TOPIC = process.env.NTFY_TOPIC;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 
 exports.handler = async (event) => {
@@ -40,7 +40,7 @@ exports.handler = async (event) => {
     }
 
     // Send push notification via ntfy
-    await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+    if (NTFY_TOPIC) await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
       method: "POST",
       headers: {
         Title: title,

@@ -136,8 +136,8 @@ exports.handler = async (event) => {
 
     // Send push notification via ntfy
     try {
-      const ntfyTopic = process.env.NTFY_TOPIC || 'hyroxweekly-subs-x7k9m2';
-      await fetch(`https://ntfy.sh/${ntfyTopic}`, {
+      const ntfyTopic = process.env.NTFY_TOPIC;
+      if (ntfyTopic) await fetch(`https://ntfy.sh/${ntfyTopic}`, {
         method: 'POST',
         headers: {
           Title: 'New Hyrox Weekly subscriber!',

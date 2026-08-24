@@ -236,9 +236,9 @@ exports.handler = async (event) => {
 
         // Send push notification via ntfy
         try {
-          const ntfyTopic = process.env.NTFY_TOPIC || 'hyroxweekly-subs-x7k9m2';
+          const ntfyTopic = process.env.NTFY_TOPIC;
           const isEarlyBirdLabel = isEarlyBird ? ` (Early Bird #${earlyBirdNumber + 53}!)` : '';
-          await fetch(`https://ntfy.sh/${ntfyTopic}`, {
+          if (ntfyTopic) await fetch(`https://ntfy.sh/${ntfyTopic}`, {
             method: 'POST',
             headers: {
               Title: 'New Premium subscriber!',
