@@ -16,7 +16,7 @@ import sys
 import time
 import json
 import requests
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from jinja2 import Template
 import pytz
 from urllib.parse import quote
@@ -28,7 +28,7 @@ ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 
 # Resend API for newsletter email delivery
 RESEND_API_KEY = os.getenv('RESEND_API_KEY')
-RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL', 'Hyrox Weekly <newsletter@hyroxweekly.com>')
+RESEND_FROM_EMAIL = os.getenv('RESEND_FROM_EMAIL', 'Hyrox Weekly <team@hyroxweekly.com>')
 
 # Supabase config (primary database)
 SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://ksqrakczmecdbzxwsvea.supabase.co')
@@ -676,7 +676,7 @@ def get_newsletter_settings():
     defaults = {
         'newsletter_name': 'HYROX WEEKLY',
         'tagline': 'Everything Hyrox, Every Week',
-        'intro_template': "Welcome! This week we've curated {content_summary} of the best Hyrox content.",
+        'intro_template': "This week we've rounded up {content_summary} of the best Hyrox content.",
         'cta_heading': 'Never Miss an Edition',
         'cta_subtext': 'The best Hyrox content, delivered weekly direct to your inbox.',
         'cta_button_text': 'Subscribe',
@@ -982,12 +982,13 @@ Content included this week:
 {content_list}
 
 Requirements:
-- STRICT LIMIT: Under 500 characters
-- Professional sports journalism style (think Sports Illustrated)
-- Highlight the key themes and topics covered this week
-- Assume readers know what Hyrox is
-- Do not use quotation marks around the text
-- Be informative and direct, no hype or filler words
+- Open with the literal sentence: "This week we've rounded up {content_summary} of the best Hyrox content." (Do not modify this opener.)
+- Then add 1-2 sentences highlighting the key themes and notable items from the list above.
+- STRICT LIMIT: Under 500 characters TOTAL (opener + your sentences combined).
+- Professional sports journalism style (think Sports Illustrated).
+- Assume readers know what Hyrox is.
+- Do not use quotation marks around the text.
+- Be informative and direct, no hype or filler words.
 - NEVER use em dashes anywhere in the text. Use commas, periods, colons, or separate sentences instead.
 - If there are notable podcast interviews or YouTube videos featuring specific athletes or well-known figures, call out up to 3 podcast interviews and up to 3 YouTube coverages by name. Only mention ones that genuinely feature a specific person (not generic training tips).
 
@@ -1008,8 +1009,24 @@ def generate_edition_overview(content, prompt_template=None):
             creator = f" by {item.get('creator_name')}" if item.get('creator_name') else ""
             content_lines.append(f"- {item['title']}{creator} ({item['platform']})")
 
+        # Build the same count-summary phrase the dashboard seeds the
+        # overview field with, so the AI opens consistently with manual edits.
+        n_video = sum(1 for c in content if c.get('platform') == 'youtube')
+        n_pod = sum(1 for c in content if c.get('platform') == 'podcast')
+        n_art = sum(1 for c in content if c.get('platform') == 'article')
+        n_red = sum(1 for c in content if c.get('platform') == 'reddit')
+        sum_parts = []
+        if n_video: sum_parts.append(f"{n_video} videos")
+        if n_pod: sum_parts.append(f"{n_pod} podcasts")
+        if n_art: sum_parts.append(f"{n_art} articles")
+        if n_red: sum_parts.append(f"{n_red} community discussions")
+        content_summary = ', '.join(sum_parts)
+
         template = prompt_template or DEFAULT_OVERVIEW_PROMPT
-        prompt = template.format(content_list=chr(10).join(content_lines))
+        prompt = template.format(
+            content_list=chr(10).join(content_lines),
+            content_summary=content_summary,
+        )
 
         message = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -1090,6 +1107,25 @@ def get_active_subscribers():
         return []
     return [{'email': r['email'], 'name': r.get('name', '')} for r in data]
 
+EMAIL_SEND_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', 'email_sends.log')
+
+
+def _append_send_log(record: dict) -> None:
+    """Append a JSONL record to logs/email_sends.log.
+
+    One line per recipient per send attempt. Cheap, append-only, parseable
+    later if we ever want to analyse delivery patterns. Failures here are
+    swallowed — logging must never break the send path.
+    """
+    try:
+        os.makedirs(os.path.dirname(EMAIL_SEND_LOG), exist_ok=True)
+        record = {'ts': datetime.now(timezone.utc).isoformat(timespec='seconds'), **record}
+        with open(EMAIL_SEND_LOG, 'a') as f:
+            f.write(json.dumps(record) + '\n')
+    except Exception:
+        pass
+
+
 def send_newsletter_via_resend(html, subject, edition_number=None):
     """Send newsletter to all active subscribers via Resend.
     Returns (successes, failures) where each is a list of dicts."""
@@ -1123,10 +1159,62 @@ def send_newsletter_via_resend(html, subject, edition_number=None):
             result = resend.Emails.send(params)
             email_id = result.get('id', '') if isinstance(result, dict) else getattr(result, 'id', '')
             successes.append({'email': sub['email'], 'resend_id': email_id})
+            _append_send_log({
+                'edition': edition_number, 'type': 'production', 'email': sub['email'],
+                'status': 'ok', 'resend_id': email_id, 'subject': subject,
+            })
         except Exception as e:
             failures.append({'email': sub['email'], 'error': str(e)})
+            _append_send_log({
+                'edition': edition_number, 'type': 'production', 'email': sub['email'],
+                'status': 'error', 'error': str(e), 'subject': subject,
+            })
 
     return successes, failures
+
+
+def send_test_email_via_resend(html, subject, to_email, edition_number=None):
+    """Send the newsletter HTML to a single test address.
+
+    Mirrors send_newsletter_via_resend so what the tester sees matches
+    exactly what subscribers will receive (same from-address, same HTML,
+    same Resend tagging path). Subject is prefixed with [TEST] by the
+    caller — keep this function dumb so the helper is reusable.
+    """
+    if not RESEND_API_KEY:
+        return False, "RESEND_API_KEY not configured in .env"
+
+    try:
+        import resend
+        resend.api_key = RESEND_API_KEY
+    except ImportError:
+        return False, "resend package not installed. Run: pip install resend"
+
+    try:
+        params = {
+            "from": RESEND_FROM_EMAIL,
+            "to": [to_email],
+            "subject": subject,
+            "html": html,
+        }
+        tags = [{"name": "test", "value": "true"}]
+        if edition_number:
+            tags.append({"name": "edition", "value": str(edition_number)})
+        params["tags"] = tags
+
+        result = resend.Emails.send(params)
+        email_id = result.get('id', '') if isinstance(result, dict) else getattr(result, 'id', '')
+        _append_send_log({
+            'edition': edition_number, 'type': 'test', 'email': to_email,
+            'status': 'ok', 'resend_id': email_id, 'subject': subject,
+        })
+        return True, email_id
+    except Exception as e:
+        _append_send_log({
+            'edition': edition_number, 'type': 'test', 'email': to_email,
+            'status': 'error', 'error': str(e), 'subject': subject,
+        })
+        return False, str(e)
 
 
 def update_content_ai_description(content_id, ai_description):
@@ -1212,10 +1300,12 @@ def get_next_edition_number():
     return 1
 
 
-def create_edition_record(edition_number, content_ids):
+def create_edition_record(edition_number, content_ids, week_start=None, week_end=None, intro_text=None):
     """Create a new edition record and mark content as published"""
-    week_start = datetime.now().date() - timedelta(days=datetime.now().weekday())
-    week_end = week_start + timedelta(days=6)
+    if not week_start:
+        week_start = datetime.now().date() - timedelta(days=datetime.now().weekday())
+    if not week_end:
+        week_end = (week_start if isinstance(week_start, date) else datetime.now().date()) + timedelta(days=6)
 
     data = {
         'edition_number': edition_number,
@@ -1224,6 +1314,9 @@ def create_edition_record(edition_number, content_ids):
         'week_end_date': str(week_end),
         'status': 'published'
     }
+    if intro_text:
+        data['intro_text'] = intro_text
+
     result = supabase_post('weekly_editions', data)
     edition_id = result.get('id') if result else None
 
@@ -1542,6 +1635,116 @@ Return only the caption text, nothing else."""
         return None, "Anthropic library not installed. Run: pip install anthropic"
     except Exception as e:
         return None, f"Error generating caption: {str(e)}"
+
+
+def _find_edition_html_path(edition):
+    """Locate the archived website HTML for a published edition.
+
+    Returns the absolute path, or None if not found on disk.
+    """
+    archive_dir = os.path.join(SITE_DIR, 'archive') if 'SITE_DIR' in globals() else os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), 'hyroxweekly-site', 'archive')
+    n = edition.get('edition_number')
+    if n is None:
+        return None
+    # Filenames look like edition-{N}-{YYYY-MM-DD}.html. Match by edition number.
+    try:
+        for fn in os.listdir(archive_dir):
+            if fn.startswith(f"edition-{n}-") and fn.endswith('.html'):
+                return os.path.join(archive_dir, fn)
+    except FileNotFoundError:
+        pass
+    return None
+
+
+def _count_edition_platforms(edition_id):
+    """Return {'youtube': N, 'podcast': N, 'article': N} for an edition."""
+    items = get_edition_content(edition_id) or []
+    counts = {'youtube': 0, 'podcast': 0, 'article': 0}
+    for it in items:
+        platform = (it.get('platform') or '').lower()
+        if platform in counts:
+            counts[platform] += 1
+    return counts
+
+
+def render_flyover_video_section():
+    """Render the 'Flyover Video' generator section on the Social page."""
+    with st.expander("🎬 Flyover Video (9:16 Reels)", expanded=False):
+        st.caption("Generates a vertical scroll-through of the newsletter ending with an animated stats ticker. Output: 1080×1920 MP4, ~16-20s.")
+
+        editions = get_editions()
+        if not editions:
+            st.info("No editions yet — publish one first.")
+            return
+
+        published = [e for e in editions if e.get('status') == 'published']
+        if not published:
+            st.info("Only published editions can be flown over (uses the archived website HTML).")
+            return
+
+        labels = [
+            f"Edition #{e['edition_number']} — {e.get('publish_date', 'N/A')[:10]}"
+            for e in published
+        ]
+        idx = st.selectbox(
+            "Edition",
+            range(len(published)),
+            format_func=lambda i: labels[i],
+            key="flyover_edition_select",
+        )
+        edition = published[idx]
+
+        html_path = _find_edition_html_path(edition)
+        if not html_path:
+            st.warning(f"Could not locate archived HTML for edition #{edition['edition_number']} under hyroxweekly-site/archive/. Deploy the edition first.")
+            return
+
+        counts = _count_edition_platforms(edition['id'])
+        cols = st.columns(3)
+        cols[0].metric("YouTube", counts['youtube'])
+        cols[1].metric("Podcasts", counts['podcast'])
+        cols[2].metric("Articles", counts['article'])
+
+        if st.button("Generate Flyover Video", type="primary", key="flyover_generate_btn"):
+            try:
+                import flyover_video
+            except Exception as e:
+                st.error(f"Flyover module unavailable: {e}")
+                return
+
+            out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', 'flyovers')
+            os.makedirs(out_dir, exist_ok=True)
+            out_path = os.path.join(out_dir, f"flyover_edition_{edition['edition_number']}.mp4")
+
+            ticker = [
+                {"label": "YouTube", "value": counts['youtube']},
+                {"label": "Podcasts", "value": counts['podcast']},
+                {"label": "Articles", "value": counts['article']},
+            ]
+
+            with st.spinner("Rendering newsletter and recording flyover… (~30s)"):
+                try:
+                    flyover_video.generate_flyover(html_path, ticker, out_path)
+                except Exception as e:
+                    st.error(f"Flyover generation failed: {e}")
+                    return
+
+            st.success(f"Wrote {out_path}")
+            st.session_state['flyover_last_path'] = out_path
+
+        last_path = st.session_state.get('flyover_last_path')
+        if last_path and os.path.exists(last_path):
+            with open(last_path, 'rb') as f:
+                video_bytes = f.read()
+            st.video(video_bytes)
+            st.download_button(
+                "Download MP4",
+                data=video_bytes,
+                file_name=os.path.basename(last_path),
+                mime="video/mp4",
+                key="flyover_download_btn",
+            )
 
 
 def lookup_creator_instagram(creator_name):
@@ -2003,6 +2206,280 @@ def clear_athlete_content(athlete_id, platforms=None):
     return count
 
 
+# ============================================================
+# ATHLETE TAGGING (Phase 1) — tag content_items to athletes.
+# Reuses athlete_content: (athlete_id, content_id) with status +
+# tag_source. Manual tags are status='selected', tag_source='manual';
+# the suggest_athlete_tags.py seeder writes status='suggested'.
+# ============================================================
+
+def get_athletes_for_tagging():
+    """Lightweight active-athlete list for tag selectors: [{id,name,tier,gender}]."""
+    return supabase_get('athletes', 'is_active=eq.true&select=id,name,tier,gender&order=name') or []
+
+
+@st.cache_data(ttl=300)
+def get_athletes_for_tagging_cached():
+    """Cached athlete list — used by the per-item inline tagger to avoid an API call per card."""
+    return get_athletes_for_tagging()
+
+
+# Adjustable config for the premium athlete editions (stored in premium_settings key/value).
+ATHLETE_YT_MIN_DURATION_KEY = 'athlete_youtube_min_duration_seconds'
+ATHLETE_YT_MIN_DURATION_DEFAULT = 600  # 10 minutes
+
+
+def get_premium_setting(key, default=None):
+    """Read a premium_settings value (returns the raw string, or default if unset)."""
+    row = supabase_get('premium_settings', f'key=eq.{key}&select=value', single=True)
+    return row['value'] if row and row.get('value') is not None else default
+
+
+def set_premium_setting(key, value):
+    """Upsert a premium_settings value (premium_settings PK is `key`)."""
+    return supabase_upsert('premium_settings',
+                           {'key': key, 'value': str(value)}, on_conflict='key')
+
+
+def get_athlete_youtube_min_seconds():
+    """Minimum YouTube runtime (seconds) for athlete-edition selection."""
+    try:
+        return int(get_premium_setting(ATHLETE_YT_MIN_DURATION_KEY, ATHLETE_YT_MIN_DURATION_DEFAULT))
+    except (TypeError, ValueError):
+        return ATHLETE_YT_MIN_DURATION_DEFAULT
+
+
+def tag_content_to_athlete(content_id, athlete_id, content_type, tag_source='manual', status='selected'):
+    """Tag a content item to an athlete (idempotent on the athlete_id/content_id unique key).
+    A manual tag overrides any prior suggestion for the same pair."""
+    return supabase_upsert('athlete_content', {
+        'athlete_id': athlete_id,
+        'content_id': content_id,
+        'content_type': content_type,
+        'status': status,
+        'tag_source': tag_source,
+    }, on_conflict='athlete_id,content_id')
+
+
+def untag_content(content_id, athlete_id):
+    """Remove an athlete tag from a content item."""
+    return supabase_delete('athlete_content', f'content_id=eq.{content_id}&athlete_id=eq.{athlete_id}')
+
+
+def get_tags_for_content(content_ids):
+    """Batch-fetch current tags for a list of content_ids.
+    Returns {content_id: [{athlete_id, name, status, tag_source}]}."""
+    if not content_ids:
+        return {}
+    ids = ','.join(str(c) for c in content_ids)
+    rows = supabase_get('athlete_content',
+        f'content_id=in.({ids})&status=in.(selected,suggested)'
+        f'&select=content_id,athlete_id,status,tag_source,athletes(name)') or []
+    out = {}
+    for r in rows:
+        out.setdefault(r['content_id'], []).append({
+            'athlete_id': r['athlete_id'],
+            'name': (r.get('athletes') or {}).get('name', '?'),
+            'status': r['status'],
+            'tag_source': r.get('tag_source'),
+        })
+    return out
+
+
+def get_tag_suggestions():
+    """All pending suggestions for the review queue, with athlete + content joined.
+    Returns list of rows ordered by athlete name."""
+    return supabase_get('athlete_content',
+        "status=eq.suggested&select=id,athlete_id,content_id,content_type,"
+        "athletes(name,tier,gender),"
+        "content_items(title,platform,url,thumbnail_url,published_date,creators(name))"
+        "&order=athlete_id") or []
+
+
+def confirm_suggestion(link_id):
+    """Confirm a suggested tag -> status='selected' (provenance stays 'suggested')."""
+    return supabase_patch('athlete_content', f'id=eq.{link_id}', {'status': 'selected'})
+
+
+def reject_suggestion(link_id):
+    """Reject a suggested tag -> status='rejected'."""
+    return supabase_patch('athlete_content', f'id=eq.{link_id}', {'status': 'rejected'})
+
+
+def get_taggable_content(platform=None, search=None, date_from=None, date_to=None,
+                         limit=50, offset=0, min_youtube_seconds=0):
+    """Browse the full content_items pool for manual tagging.
+    Returns content items (newest first) with optional platform/text/date filters.
+    min_youtube_seconds>0 hides YouTube videos shorter than the threshold (other
+    platforms are unaffected); NULL-duration YouTube rows are also hidden."""
+    import urllib.parse
+    parts = ['select=id,title,platform,url,thumbnail_url,description,ai_description,'
+             'published_date,view_count,duration_seconds,creators(name)']
+    if platform and platform != 'all':
+        parts.append(f'platform=eq.{platform}')
+    if search:
+        parts.append('title=ilike.' + urllib.parse.quote(f'*{search}*'))
+    if date_from:
+        parts.append(f'published_date=gte.{date_from}')
+    if date_to:
+        parts.append(f'published_date=lte.{date_to}')
+    if min_youtube_seconds and min_youtube_seconds > 0:
+        # Keep the row if it is not a YouTube video, OR it is long enough.
+        parts.append(f'or=(platform.neq.youtube,duration_seconds.gte.{int(min_youtube_seconds)})')
+    parts.append('order=published_date.desc.nullslast')
+    parts.append(f'limit={limit}')
+    parts.append(f'offset={offset}')
+    return supabase_get('content_items', '&'.join(parts)) or []
+
+
+_PLATFORM_ICON = {'youtube': '▶️', 'podcast': '🎙️', 'article': '📄', 'reddit': '💬'}
+
+
+def render_athlete_tagging_tab():
+    """Premium > Athlete Tagging: review auto-suggested tags and tag from the full content pool."""
+    st.markdown("### 🏷️ Athlete Tagging")
+    st.caption("Tag content to athletes to build their premium editions. "
+               "Manual tags and confirmed suggestions flow into each athlete's edition.")
+
+    athletes = get_athletes_for_tagging()
+    if not athletes:
+        st.info("No athletes in the database yet. Add athletes on the 🏃 Athletes page first.")
+        return
+    ath_by_id = {a['id']: a for a in athletes}
+
+    view = st.radio("View", ["📥 Review Suggestions", "🔎 Tag from Editions"],
+                    horizontal=True, key="tag_view", label_visibility="collapsed")
+    if view.startswith("📥"):
+        _render_review_suggestions(ath_by_id)
+    else:
+        _render_tag_from_editions(athletes, ath_by_id)
+
+
+def _render_review_suggestions(ath_by_id):
+    """The auto-suggest review queue (status='suggested'), grouped by athlete."""
+    from collections import defaultdict
+    suggestions = get_tag_suggestions()
+    if not suggestions:
+        st.success("🎉 No pending suggestions. Run `python suggest_athlete_tags.py --apply` to generate more.")
+        return
+
+    groups = defaultdict(list)
+    for s in suggestions:
+        groups[s['athlete_id']].append(s)
+    st.caption(f"**{len(suggestions)}** pending suggestions across **{len(groups)}** athletes")
+
+    for aid in sorted(groups, key=lambda i: (ath_by_id.get(i, {}).get('name') or '')):
+        items = groups[aid]
+        name = (items[0].get('athletes') or {}).get('name') or ath_by_id.get(aid, {}).get('name', '?')
+        with st.expander(f"● {name} — {len(items)} suggestion(s)", expanded=False):
+            b1, b2, _ = st.columns([1, 1, 3])
+            if b1.button("✅ Confirm all", key=f"conf_all_{aid}", use_container_width=True):
+                for s in items:
+                    confirm_suggestion(s['id'])
+                st.rerun()
+            if b2.button("❌ Reject all", key=f"rej_all_{aid}", use_container_width=True):
+                for s in items:
+                    reject_suggestion(s['id'])
+                st.rerun()
+            for s in items:
+                ci = s.get('content_items') or {}
+                c1, c2, c3 = st.columns([6, 1, 1])
+                platform = ci.get('platform') or 'link'
+                icon = _PLATFORM_ICON.get(platform, '🔗')
+                label = f"{icon} {platform.title()}"
+                title = ci.get('title') or '(untitled)'
+                url = ci.get('url')
+                link = f"[{title}]({url})" if url else title
+                c1.markdown(f"{label} · {link}")
+                if c2.button("✅", key=f"conf_{s['id']}", help="Confirm"):
+                    confirm_suggestion(s['id'])
+                    st.rerun()
+                if c3.button("❌", key=f"rej_{s['id']}", help="Reject"):
+                    reject_suggestion(s['id'])
+                    st.rerun()
+
+
+def _render_tag_from_editions(athletes, ath_by_id):
+    """Browse the full content_items pool and tag items to athletes."""
+    f1, f2, f3 = st.columns([2, 3, 1])
+    platform = f1.selectbox("Platform", ['all', 'youtube', 'podcast', 'article', 'reddit'], key="tag_plat")
+    search = f2.text_input("Search title", key="tag_search", placeholder="e.g. Dearden, World Champs…")
+    limit = f3.selectbox("Per page", [25, 50, 100], index=1, key="tag_limit")
+
+    # Adjustable config: minimum YouTube runtime for athlete-edition selection.
+    stored_min = get_athlete_youtube_min_seconds()
+    g1, g2, g3 = st.columns([1, 2, 1])
+    apply_min = g1.checkbox("Min YouTube length", value=True, key="tag_apply_min",
+                            help="Hide YouTube videos shorter than the length on the right (other platforms unaffected)")
+    min_minutes = g2.number_input("minutes", min_value=0, max_value=120,
+                                  value=stored_min // 60, step=1, key="tag_min_minutes",
+                                  label_visibility="collapsed")
+    if g3.button("💾 Save as default", key="tag_save_min",
+                 help="Persist this threshold (also used by the auto-suggest seeder)"):
+        set_premium_setting(ATHLETE_YT_MIN_DURATION_KEY, int(min_minutes) * 60)
+        st.success(f"Saved: YouTube ≥ {int(min_minutes)} min")
+        st.rerun()
+    min_youtube_seconds = int(min_minutes) * 60 if apply_min else 0
+
+    # Reset pagination whenever the filters change.
+    filter_key = (platform, search, limit, min_youtube_seconds)
+    if st.session_state.get('tag_filter_key') != filter_key:
+        st.session_state.tag_filter_key = filter_key
+        st.session_state.tag_offset = 0
+    offset = st.session_state.get('tag_offset', 0)
+
+    items = get_taggable_content(platform=platform, search=search or None, limit=limit,
+                                 offset=offset, min_youtube_seconds=min_youtube_seconds)
+    if not items:
+        st.info("No content matches these filters.")
+        return
+
+    tags = get_tags_for_content([i['id'] for i in items])
+    athlete_ids = [a['id'] for a in athletes]
+
+    st.caption(f"Showing {len(items)} items (offset {offset}). Pick athletes, then **Save tags** per item.")
+    for it in items:
+        cid = it['id']
+        current = tags.get(cid, [])
+        selected_ids = [t['athlete_id'] for t in current if t['status'] == 'selected']
+        suggested = [t['name'] for t in current if t['status'] == 'suggested']
+        with st.container(border=True):
+            icon = _PLATFORM_ICON.get(it.get('platform'), '🔗')
+            title = it.get('title') or '(untitled)'
+            url = it.get('url')
+            st.markdown(f"{icon} **[{title}]({url})**" if url else f"{icon} **{title}**")
+            meta = []
+            creator = (it.get('creators') or {}).get('name')
+            if creator:
+                meta.append(creator)
+            if it.get('published_date'):
+                meta.append(str(it['published_date'])[:10])
+            if meta:
+                st.caption(" · ".join(meta))
+            if suggested:
+                st.caption("💡 Suggested: " + ", ".join(suggested) + " — confirm in the Review tab, or add below.")
+            sel = st.multiselect("Tagged athletes", options=athlete_ids, default=selected_ids,
+                                 format_func=lambda i: ath_by_id[i]['name'],
+                                 key=f"ms_{cid}", label_visibility="collapsed")
+            if st.button("💾 Save tags", key=f"save_{cid}"):
+                to_add = set(sel) - set(selected_ids)
+                to_remove = set(selected_ids) - set(sel)
+                for aid in to_add:
+                    tag_content_to_athlete(cid, aid, it.get('platform'))
+                for aid in to_remove:
+                    untag_content(cid, aid)
+                st.success(f"Saved — {len(to_add)} added, {len(to_remove)} removed")
+                st.rerun()
+
+    p1, p2, _ = st.columns([1, 1, 4])
+    if offset > 0 and p1.button("← Prev"):
+        st.session_state.tag_offset = max(0, offset - limit)
+        st.rerun()
+    if len(items) == limit and p2.button("Next →"):
+        st.session_state.tag_offset = offset + limit
+        st.rerun()
+
+
 def clear_topic_content(topic_id, platforms=None):
     """Clear performance_content links for a topic, optionally filtered by platform."""
     if platforms is None or 'all' in platforms:
@@ -2248,11 +2725,7 @@ BEEHIIV_TEMPLATE = """
 <tr>
 {% for item in items %}
 <td width="50%" style="vertical-align:top;padding:{% if loop.index is odd %}0 12px 24px 0{% else %}0 0 24px 12px{% endif %};">
-{% if item.thumbnail_url %}
-<a href="{{ item.url }}" style="display:block;margin-bottom:12px;">
-<img src="{{ item.thumbnail_url }}" alt="" style="width:100%;height:140px;object-fit:cover;border-radius:4px;">
-</a>
-{% endif %}
+{% if item.thumbnail_url %}<a href="{{ item.url }}" style="display:block;margin-bottom:12px;"><img src="{{ item.thumbnail_url }}" alt="" style="width:100%;height:140px;object-fit:cover;border-radius:4px;"></a>{% endif %}
 <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#CC5500;margin-bottom:6px;">YouTube</div>
 <h3 style="font-size:15px;font-weight:700;color:#1a1a1a;margin:0 0 6px 0;line-height:1.3;"><a href="{{ item.url }}" style="color:#1a1a1a;text-decoration:none;">{{ item.title }}</a></h3>
 <div style="font-size:11px;color:#999999;font-weight:500;margin-bottom:8px;">{{ item.creator_name }}{% if item.duration_display %} • {{ item.duration_display }}{% endif %}</div>
@@ -2273,9 +2746,7 @@ BEEHIIV_TEMPLATE = """
 <tr>
 {% for item in podcasts %}
 <td width="50%" style="vertical-align:top;padding:{% if loop.index is odd %}0 12px 24px 0{% else %}0 0 24px 12px{% endif %};">
-{% if item.thumbnail_url %}
-<img src="{{ item.thumbnail_url }}" alt="" style="width:100%;height:140px;object-fit:cover;border-radius:4px;margin-bottom:12px;">
-{% endif %}
+{% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="" style="width:100%;height:140px;object-fit:cover;border-radius:4px;margin-bottom:12px;">{% endif %}
 <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#CC5500;margin-bottom:6px;">Podcast</div>
 <h3 style="font-size:15px;font-weight:700;color:#1a1a1a;margin:0 0 6px 0;line-height:1.3;">{{ item.title }}</h3>
 <div style="font-size:11px;color:#999999;font-weight:500;margin-bottom:10px;">{{ item.creator_name }}{% if item.duration_display %} • {{ item.duration_display }}{% endif %}</div>
@@ -2299,11 +2770,7 @@ BEEHIIV_TEMPLATE = """
 <tr>
 {% for item in articles %}
 <td width="50%" style="vertical-align:top;padding:{% if loop.index is odd %}0 12px 24px 0{% else %}0 0 24px 12px{% endif %};">
-{% if item.thumbnail_url %}
-<a href="{{ item.url }}" style="display:block;margin-bottom:12px;">
-<img src="{{ item.thumbnail_url }}" alt="" style="width:100%;height:140px;object-fit:cover;border-radius:4px;">
-</a>
-{% endif %}
+{% if item.thumbnail_url %}<a href="{{ item.url }}" style="display:block;margin-bottom:12px;"><img src="{{ item.thumbnail_url }}" alt="" style="width:100%;height:140px;object-fit:cover;border-radius:4px;"></a>{% endif %}
 <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#CC5500;margin-bottom:6px;">Article</div>
 <h3 style="font-size:15px;font-weight:700;color:#1a1a1a;margin:0 0 6px 0;line-height:1.3;"><a href="{{ item.url }}" style="color:#1a1a1a;text-decoration:none;">{{ item.title }}</a></h3>
 <div style="font-size:11px;color:#999999;font-weight:500;margin-bottom:8px;">{{ item.creator_name }}</div>
@@ -2630,6 +3097,7 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
 
 </div>
 
+<script src="/assets/premium-gate.js"></script>
 </body>
 </html>"""
 
@@ -2786,13 +3254,13 @@ def generate_newsletter_html(content, edition_number, config=None, selected_athl
     if reddit_posts: parts.append(f"{len(reddit_posts)} community discussions")
     content_summary = ', '.join(parts)
     
-    # Use custom overview if provided, otherwise auto-generate
+    # Use the dashboard-edited Newsletter Overview as-is. The dashboard
+    # seeds it with the content-count summary on first load so the user
+    # can keep, expand, or rewrite it before sending.
     if config and config.get('intro_override'):
-        intro = f"This week we've curated {content_summary} of the best Hyrox content. {config['intro_override']}"
-    elif config:
-        intro = config.get('intro_template', "Welcome! This week we've curated {content_summary} of the best Hyrox content.").format(content_summary=content_summary)
+        intro = config['intro_override']
     else:
-        intro = f"Welcome! This week we've curated {content_summary} of the best Hyrox content."
+        intro = f"This week we've rounded up {content_summary} of the best Hyrox content." if content_summary else "Welcome to this week's edition."
     
     # Get week range from config if provided, otherwise calculate
     if config and config.get('week_start') and config.get('week_end'):
@@ -2872,13 +3340,13 @@ def generate_beehiiv_html(content, edition_number, config=None, selected_athlete
     if reddit_posts: parts.append(f"{len(reddit_posts)} community discussions")
     content_summary = ', '.join(parts)
     
-    # Use custom overview if provided, otherwise auto-generate
+    # Use the dashboard-edited Newsletter Overview as-is. The dashboard
+    # seeds it with the content-count summary on first load so the user
+    # can keep, expand, or rewrite it before sending.
     if config and config.get('intro_override'):
-        intro = f"This week we've curated {content_summary} of the best Hyrox content. {config['intro_override']}"
-    elif config:
-        intro = config.get('intro_template', "Welcome! This week we've curated {content_summary} of the best Hyrox content.").format(content_summary=content_summary)
+        intro = config['intro_override']
     else:
-        intro = f"Welcome! This week we've curated {content_summary} of the best Hyrox content."
+        intro = f"This week we've rounded up {content_summary} of the best Hyrox content." if content_summary else "Welcome to this week's edition."
     
     # Get week range from config if provided, otherwise calculate
     if config and config.get('week_start') and config.get('week_end'):
@@ -2953,13 +3421,13 @@ def generate_website_html(content, edition_number, config=None, selected_athlete
     if reddit_posts: parts.append(f"{len(reddit_posts)} community discussions")
     content_summary = ', '.join(parts)
     
-    # Use custom overview if provided, otherwise auto-generate
+    # Use the dashboard-edited Newsletter Overview as-is. The dashboard
+    # seeds it with the content-count summary on first load so the user
+    # can keep, expand, or rewrite it before sending.
     if config and config.get('intro_override'):
-        intro = f"This week we've curated {content_summary} of the best Hyrox content. {config['intro_override']}"
-    elif config:
-        intro = config.get('intro_template', "Welcome! This week we've curated {content_summary} of the best Hyrox content.").format(content_summary=content_summary)
+        intro = config['intro_override']
     else:
-        intro = f"Welcome! This week we've curated {content_summary} of the best Hyrox content."
+        intro = f"This week we've rounded up {content_summary} of the best Hyrox content." if content_summary else "Welcome to this week's edition."
     
     # Get week range from config if provided, otherwise calculate
     if config and config.get('week_start') and config.get('week_end'):
@@ -3016,6 +3484,149 @@ def generate_website_html(content, edition_number, config=None, selected_athlete
         section_title_athletes=config.get('section_title_athletes', '🏃 Athletes to Follow') if config else '🏃 Athletes to Follow',
     )
     return html
+
+
+# ============================================================================
+# WEBSITE DEPLOY
+# ============================================================================
+
+SITE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hyroxweekly-site')
+
+def deploy_to_website(website_html, edition_number, week_start, week_end, content_counts):
+    """Deploy edition to hyroxweekly.com: save HTML, update archive index + homepage, netlify deploy."""
+    import json as _json
+    import re as _re
+
+    steps = []
+    filename = f"edition-{edition_number}-{week_start.strftime('%Y-%m-%d')}.html"
+    archive_path = os.path.join(SITE_DIR, 'archive', filename)
+
+    # 1. Save edition HTML
+    with open(archive_path, 'w', encoding='utf-8') as f:
+        f.write(website_html)
+    steps.append(f"Saved {filename}")
+
+    # 2. Update edition-config.json
+    config_path = os.path.join(SITE_DIR, 'assets', 'edition-config.json')
+    with open(config_path, 'w', encoding='utf-8') as f:
+        _json.dump({"latestEdition": edition_number}, f)
+    steps.append(f"Updated edition-config.json → latestEdition: {edition_number}")
+
+    # 3. Update archive/index.html — insert new entry at top of 2026 list
+    archive_index_path = os.path.join(SITE_DIR, 'archive', 'index.html')
+    with open(archive_index_path, 'r', encoding='utf-8') as f:
+        archive_html = f.read()
+
+    ws_fmt = week_start.strftime('%b %d')  # e.g. "Apr 06"
+    we_fmt = week_end.strftime('%b %d')    # e.g. "Apr 12"
+    ws_full = week_start.strftime('%B %d')  # e.g. "April 06"
+    we_full = f"{week_end.strftime('%B')} {week_end.day:02d}, {week_end.year}"  # e.g. "April 12, 2026"
+
+    videos = content_counts.get('youtube', 0)
+    podcasts = content_counts.get('podcast', 0)
+    articles = content_counts.get('article', 0)
+    discussions = content_counts.get('reddit', 0)
+
+    meta_spans = []
+    if videos:
+        meta_spans.append(f'<span>📹 {videos} video{"s" if videos != 1 else ""}</span>')
+    if podcasts:
+        meta_spans.append(f'<span>🎙️ {podcasts} podcast{"s" if podcasts != 1 else ""}</span>')
+    if articles:
+        meta_spans.append(f'<span>📝 {articles} article{"s" if articles != 1 else ""}</span>')
+    if discussions:
+        meta_spans.append(f'<span>💬 {discussions} discussion{"s" if discussions != 1 else ""}</span>')
+    meta_html = '\n            '.join(meta_spans)
+
+    new_entry = f"""
+      <!-- Edition {edition_number} - {ws_fmt} - {we_fmt}-->
+      <a href="/archive/{filename}" class="archive-item">
+        <div class="archive-item-content">
+          <div class="archive-item-edition">Edition #{edition_number}</div>
+          <h3 class="archive-item-title">{ws_full} - {we_full}</h3>
+          <div class="archive-item-meta">
+            {meta_html}
+          </div>
+        </div>
+        <span class="archive-item-arrow">→</span>
+      </a>
+"""
+
+    # Only insert if this edition isn't already in the archive index
+    edition_marker = f'edition-{edition_number}-'
+    if edition_marker in archive_html:
+        steps.append(f"archive/index.html already has Edition {edition_number} — skipped")
+    else:
+        edition_year = str(week_start.year)
+        year_marker = f'<h2 class="archive-year-title">{edition_year}</h2>'
+        list_open = '<div class="archive-list">'
+
+        if year_marker in archive_html:
+            # Insert after the <div class="archive-list"> that follows the year heading
+            year_pos = archive_html.index(year_marker)
+            list_pos = archive_html.index(list_open, year_pos)
+            insert_at = list_pos + len(list_open)
+            archive_html = archive_html[:insert_at] + new_entry + archive_html[insert_at:]
+        else:
+            # New year section — insert before the first <section class="archive-year">
+            new_year_section = f"""
+  <section class="archive-year">
+    <h2 class="archive-year-title">{edition_year}</h2>
+    <div class="archive-list">
+{new_entry}
+    </div>
+  </section>
+
+"""
+            first_section = '<section class="archive-year">'
+            if first_section in archive_html:
+                pos = archive_html.index(first_section)
+                archive_html = archive_html[:pos] + new_year_section + archive_html[pos:]
+            else:
+                archive_html = archive_html.replace(
+                    '<main class="archive-container">',
+                    '<main class="archive-container">' + new_year_section
+                )
+
+        with open(archive_index_path, 'w', encoding='utf-8') as f:
+            f.write(archive_html)
+        steps.append("Updated archive/index.html")
+
+    # 4. Update homepage latest edition reference
+    homepage_path = os.path.join(SITE_DIR, 'index.html')
+    with open(homepage_path, 'r', encoding='utf-8') as f:
+        homepage_html = f.read()
+
+    date_range_short = f"{week_start.strftime('%B')} {week_start.day} - {week_end.strftime('%B')} {week_end.day}"
+    new_issue_text = f"Issue {edition_number}: {date_range_short}"
+    homepage_html = _re.sub(
+        r'(<span[^>]*id="latest-date"[^>]*>).*?(</span>)',
+        rf'\1{new_issue_text}\2',
+        homepage_html
+    )
+
+    with open(homepage_path, 'w', encoding='utf-8') as f:
+        f.write(homepage_html)
+    steps.append(f"Updated homepage → {new_issue_text}")
+
+    # 5. Deploy via Netlify CLI
+    import subprocess as _sp
+    result = _sp.run(
+        ['netlify', 'deploy', '--prod', '--dir', '.'],
+        capture_output=True, text=True, timeout=120,
+        cwd=SITE_DIR
+    )
+    if result.returncode == 0:
+        # Extract the live URL from output
+        url_match = _re.search(r'(https://[^\s]+hyroxweekly[^\s]*)', result.stdout)
+        live_url = url_match.group(1) if url_match else 'https://hyroxweekly.com'
+        steps.append(f"Deployed to {live_url}")
+    else:
+        error_msg = (result.stderr or result.stdout or 'Unknown error')[:200]
+        steps.append(f"Netlify deploy failed: {error_msg}")
+        return False, steps
+
+    return True, steps
 
 
 # ============================================================================
@@ -3424,6 +4035,34 @@ def render_content_item(item, display_tz):
                 # Set published_date to the Monday of the target week
                 update_content_published_date(item['id'], target_week['start'])
                 st.success(f"Moved to {target_week['label']}")
+                st.rerun()
+
+        # Tag athletes (Phase 1) — flows this content into the tagged athletes' editions
+        with st.expander("🏷️ Tag Athletes", expanded=False):
+            tag_athletes = get_athletes_for_tagging_cached()
+            tag_name_by_id = {a['id']: a['name'] for a in tag_athletes}
+            item_tags = get_tags_for_content([item['id']]).get(item['id'], [])
+            tagged_ids = [t['athlete_id'] for t in item_tags if t['status'] == 'selected']
+            tag_suggested = [t['name'] for t in item_tags if t['status'] == 'suggested']
+            if tag_suggested:
+                st.caption("💡 Suggested: " + ", ".join(tag_suggested) + " — selecting below confirms them.")
+            picked = st.multiselect(
+                "Athletes featured in this content",
+                options=[a['id'] for a in tag_athletes],
+                default=tagged_ids,
+                format_func=lambda i: tag_name_by_id.get(i, str(i)),
+                key=f"tag_ath_{item['id']}",
+                label_visibility="collapsed",
+                placeholder="Select athlete(s) featured here…",
+            )
+            if st.button("💾 Save Athlete Tags", key=f"save_tag_ath_{item['id']}"):
+                to_add = set(picked) - set(tagged_ids)
+                to_remove = set(tagged_ids) - set(picked)
+                for aid in to_add:
+                    tag_content_to_athlete(item['id'], aid, item['platform'])
+                for aid in to_remove:
+                    untag_content(item['id'], aid)
+                st.success(f"Saved — {len(to_add)} added, {len(to_remove)} removed")
                 st.rerun()
 
 
@@ -4817,12 +5456,24 @@ def main():
         week_end_date = selected_week['end']
         
         st.caption(f"Generating newsletter for content published from **{week_start_date}** to **{week_end_date}**")
-        
+
+        # Check for existing published edition for this week
+        existing_edition = None
+        existing_editions = supabase_get('weekly_editions', f'week_start_date=eq.{week_start_date}&week_end_date=eq.{week_end_date}&limit=1')
+        if existing_editions:
+            existing_edition = existing_editions[0]
+            st.info(f"Edition {existing_edition['edition_number']} already published for this week.")
+            # Pre-populate edition overview from DB if session is empty
+            if not st.session_state.get('edition_overview') and existing_edition.get('intro_text'):
+                st.session_state['edition_overview'] = existing_edition['intro_text']
+
         st.markdown("---")
-        
-        # Get selected content for the chosen week - use cached version
+
+        # Get content for the chosen week — try selected first, fall back to published
         selected_content = get_content_cached(status_filter='selected', week_start=week_start_date, week_end=week_end_date)
-        
+        if not selected_content and existing_edition:
+            selected_content = get_content_cached(status_filter='published', week_start=week_start_date, week_end=week_end_date)
+
         # Summary
         st.markdown("### 📋 Selected Content Summary")
         
@@ -4841,12 +5492,30 @@ def main():
 
         # Edition Overview
         st.markdown("### 📝 Edition Overview")
-        st.markdown("AI-generated intro blurb for this edition")
+        st.markdown("Editable intro blurb for this edition. Pre-seeded with the content-count summary; click ✨ to expand with AI, or just edit it directly.")
 
         if 'edition_overview' not in st.session_state:
             st.session_state['edition_overview'] = ''
         if 'overview_prompt' not in st.session_state:
             st.session_state['overview_prompt'] = DEFAULT_OVERVIEW_PROMPT
+
+        # Seed the overview with the count summary on first load (when
+        # there's no DB-loaded value and no user edits yet) so the user
+        # can see and tweak the "X videos, Y podcasts, ..." line that
+        # used to be auto-prepended at HTML generation time.
+        if not st.session_state['edition_overview'] and selected_content:
+            n_video = sum(1 for c in selected_content if c.get('platform') == 'youtube')
+            n_pod = sum(1 for c in selected_content if c.get('platform') == 'podcast')
+            n_art = sum(1 for c in selected_content if c.get('platform') == 'article')
+            n_red = sum(1 for c in selected_content if c.get('platform') == 'reddit')
+            seed_parts = []
+            if n_video: seed_parts.append(f"{n_video} videos")
+            if n_pod: seed_parts.append(f"{n_pod} podcasts")
+            if n_art: seed_parts.append(f"{n_art} articles")
+            if n_red: seed_parts.append(f"{n_red} community discussions")
+            if seed_parts:
+                st.session_state['edition_overview'] = f"This week we've rounded up {', '.join(seed_parts)} of the best Hyrox content."
+                st.session_state['edition_overview_input'] = st.session_state['edition_overview']
 
         with st.expander("⚙️ Overview Prompt", expanded=False):
             edited_prompt = st.text_area(
@@ -4886,74 +5555,11 @@ def main():
             st.session_state['edition_overview'] = edited_overview
 
         st.markdown("---")
-
-        # Athlete Spotlight Selection
-        st.markdown("### 🏃 Athlete Spotlight")
-        st.markdown("Select athletes to feature in this edition")
-        
-        all_athletes = get_athletes(active_only=True)
-        
-        if not all_athletes:
-            st.info("No athletes available. Go to the Athletes page to add some.")
-            selected_athlete_ids = []
-        else:
-            # Initialize session state for selected athletes if not exists
-            if 'selected_athletes' not in st.session_state:
-                st.session_state['selected_athletes'] = []
-            
-            # Create athlete selection grid
-            athlete_cols = st.columns(4)
-            
-            # Sort athletes: previously selected first, then by name
-            selected_ids_set = set(st.session_state['selected_athletes'])
-            sorted_athletes = sorted(all_athletes, key=lambda a: (a['id'] not in selected_ids_set, a['name']))
-            
-            for i, athlete in enumerate(sorted_athletes):
-                with athlete_cols[i % 4]:
-                    is_selected = athlete['id'] in st.session_state['selected_athletes']
-                    
-                    # Show thumbnail
-                    if athlete.get('profile_image_url'):
-                        st.image(athlete['profile_image_url'], width=60)
-                    else:
-                        st.markdown("👤")
-                    
-                    # Checkbox for selection
-                    if st.checkbox(
-                        f"{athlete['name']}", 
-                        value=is_selected,
-                        key=f"ath_select_{athlete['id']}",
-                        help=f"@{athlete['instagram_handle']} • {athlete['country'] or 'Unknown'}"
-                    ):
-                        if athlete['id'] not in st.session_state['selected_athletes']:
-                            st.session_state['selected_athletes'].append(athlete['id'])
-                    else:
-                        if athlete['id'] in st.session_state['selected_athletes']:
-                            st.session_state['selected_athletes'].remove(athlete['id'])
-            
-            selected_athlete_ids = st.session_state['selected_athletes']
-            
-            # Show selection count
-            st.caption(f"**{len(selected_athlete_ids)} athletes selected** for spotlight")
-            
-            # Quick actions
-            col_a, col_b = st.columns(2)
-            with col_a:
-                if st.button("Clear All Athletes"):
-                    st.session_state['selected_athletes'] = []
-                    st.rerun()
-            with col_b:
-                if st.button("Select Suggested (4)"):
-                    suggested = get_athletes_for_spotlight(4)
-                    st.session_state['selected_athletes'] = [a['id'] for a in suggested]
-                    st.rerun()
-        
-        st.markdown("---")
         
         if not selected_content:
             st.warning(f"No content selected for this week! Go to Curation, select the same week ({week_start_date} to {week_end_date}), and mark content as selected.")
         else:
-            default_edition = get_next_edition_number()
+            default_edition = existing_edition['edition_number'] if existing_edition else get_next_edition_number()
             edition_number = st.number_input("Edition Number", min_value=1, value=default_edition, step=1, key="edition_number_input")
             st.markdown(f"### 📰 Edition #{edition_number}")
             
@@ -4961,8 +5567,10 @@ def main():
             st.session_state['generate_week_start'] = week_start_date
             st.session_state['generate_week_end'] = week_end_date
             
-            # Generate Preview
-            if st.button("🔄 Generate Preview", type="primary", use_container_width=True):
+            # Auto-generate for existing editions, or manual button for new ones
+            should_auto_generate = existing_edition and 'newsletter_html' not in st.session_state
+
+            if should_auto_generate or st.button("🔄 Generate Preview", type="primary", use_container_width=True):
                 with st.spinner("Generating newsletter..."):
                     # Pass week dates to newsletter generator
                     config = st.session_state['newsletter_config'].copy()
@@ -4973,19 +5581,15 @@ def main():
                     if st.session_state.get('edition_overview'):
                         config['intro_override'] = st.session_state['edition_overview']
 
-                    # Get selected athletes
-                    selected_athletes_list = [a for a in all_athletes if a['id'] in selected_athlete_ids] if all_athletes else []
-                    
-                    # Generate both versions
-                    html_standalone = generate_newsletter_html(selected_content, edition_number, config, selected_athletes=selected_athletes_list)
-                    html_beehiiv = generate_beehiiv_html(selected_content, edition_number, config, selected_athletes=selected_athletes_list)
-                    html_website = generate_website_html(selected_content, edition_number, config, selected_athletes=selected_athletes_list)
-                    
+                    # Generate all versions
+                    html_standalone = generate_newsletter_html(selected_content, edition_number, config)
+                    html_beehiiv = generate_beehiiv_html(selected_content, edition_number, config)
+                    html_website = generate_website_html(selected_content, edition_number, config)
+
                     st.session_state['newsletter_html'] = html_standalone
                     st.session_state['newsletter_beehiiv'] = html_beehiiv
                     st.session_state['newsletter_website'] = html_website
                     st.session_state['edition_number'] = edition_number
-                    st.session_state['featured_athlete_ids'] = selected_athlete_ids.copy()
                     st.success("Newsletter generated!")
             
             # Show Preview
@@ -4999,7 +5603,7 @@ def main():
                 st.markdown("---")
                 
                 # Export Tabs
-                export_tab1, export_tab2, export_tab3 = st.tabs(["📧 Email Send", "🌐 Website Export", "📄 Standalone HTML"])
+                export_tab1, export_tab2, export_tab3 = st.tabs(["📧 Email Send", "🚀 Deploy to Website", "📄 Standalone HTML"])
 
                 with export_tab1:
                     st.markdown("### Send via Email (Resend)")
@@ -5011,7 +5615,7 @@ def main():
                         2. Add & verify your domain (hyroxweekly.com)
                         3. Get your API key
                         4. Add `RESEND_API_KEY=re_...` to your `.env` file
-                        5. Set `RESEND_FROM_EMAIL=Hyrox Weekly <newsletter@hyroxweekly.com>`
+                        5. Set `RESEND_FROM_EMAIL=Hyrox Weekly <team@hyroxweekly.com>`
                         6. Restart the dashboard
                         """)
 
@@ -5075,7 +5679,45 @@ def main():
 
                     email_subject = st.text_input("Subject Line", value=default_subject, key="email_subject")
 
+                    # --- Test send (always shown when Resend is configured) ---
+                    if RESEND_API_KEY:
+                        st.markdown("**🧪 Test send** — preview in your own inbox before going to subscribers. Subject is prefixed with `[TEST]`.")
+                        test_col1, test_col2 = st.columns([3, 1])
+                        with test_col1:
+                            test_email = st.text_input(
+                                "Test email address",
+                                value=st.session_state.get('test_email_value', ''),
+                                placeholder="you@example.com",
+                                key="test_email_input",
+                                label_visibility="collapsed",
+                            )
+                        with test_col2:
+                            send_test_clicked = st.button("📧 Send Test", use_container_width=True, key="send_test_btn")
+                        if send_test_clicked:
+                            st.session_state['test_email_value'] = test_email
+                            if not test_email or '@' not in test_email:
+                                st.error("Enter a valid email address.")
+                            else:
+                                with st.spinner(f"Sending test to {test_email}..."):
+                                    html = st.session_state.get('newsletter_beehiiv', st.session_state.get('newsletter_html', ''))
+                                    if not html:
+                                        st.error("No newsletter HTML available — generate the preview first.")
+                                    else:
+                                        test_subject = f"[TEST] {email_subject}"
+                                        ok, info = send_test_email_via_resend(html, test_subject, test_email, edition_num)
+                                        if ok:
+                                            st.success(f"✅ Test sent to {test_email} (Resend ID: {info[:8]}...)")
+                                        else:
+                                            st.error(f"❌ Test send failed: {info}")
+                        st.markdown("---")
+
                     if active_subs and RESEND_API_KEY:
+                        # Show prior-send info if this edition's row already has a published_at
+                        prior_send_at = existing_edition.get('published_at') if existing_edition else None
+                        prior_send_count = existing_edition.get('subscriber_count') if existing_edition else None
+                        if prior_send_at:
+                            st.warning(f"⚠️ Edition #{edition_num} was previously sent at **{prior_send_at[:19]} UTC** to {prior_send_count or '?'} subscribers. Sending again will deliver a duplicate.")
+
                         st.info(f"Ready to send to **{len(active_subs)} subscriber{'s' if len(active_subs) != 1 else ''}**")
 
                         if st.button("📨 Send Newsletter", type="primary", use_container_width=True):
@@ -5094,6 +5736,16 @@ def main():
                                             st.success(f"Sent to {len(successes)} subscriber{'s' if len(successes) != 1 else ''}")
                                             for s in successes:
                                                 st.caption(f"✅ {s['email']} (ID: {s['resend_id'][:8]}...)")
+                                            # Persist send to weekly_editions so next time we can see "last sent at..."
+                                            if existing_edition and existing_edition.get('id'):
+                                                supabase_patch(
+                                                    'weekly_editions',
+                                                    f"id=eq.{existing_edition['id']}",
+                                                    {
+                                                        'published_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+                                                        'subscriber_count': len(successes),
+                                                    },
+                                                )
                                         if failures:
                                             st.error(f"Failed for {len(failures)} subscriber{'s' if len(failures) != 1 else ''}")
                                             for f_item in failures:
@@ -5120,24 +5772,54 @@ def main():
                         )
                 
                 with export_tab2:
-                    st.markdown("### Export for Your Website")
-                    
-                    st.info("""
-                    **This HTML is ready for your own website hosting:**
-                    - Full HTML page with SEO meta tags
-                    - Open Graph tags for social sharing
-                    - Responsive design
-                    - Subscribe form placeholder (add your Beehiiv embed code)
-                    
-                    **Upload to:** Netlify, Vercel, GitHub Pages, or your own server
-                    """)
-                    
+                    st.markdown("### Deploy to hyroxweekly.com")
+
                     # Generate filename based on week
                     week_start = st.session_state.get('generate_week_start', datetime.now().date())
-                    filename_slug = f"edition-{st.session_state['edition_number']}-{week_start.strftime('%Y-%m-%d')}"
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
+                    week_end = st.session_state.get('generate_week_end', datetime.now().date())
+                    edition_num_deploy = st.session_state['edition_number']
+                    filename_slug = f"edition-{edition_num_deploy}-{week_start.strftime('%Y-%m-%d')}"
+
+                    # Check if already deployed
+                    deploy_path = os.path.join(SITE_DIR, 'archive', f"{filename_slug}.html")
+                    already_deployed = os.path.exists(deploy_path)
+
+                    if already_deployed:
+                        st.success(f"`{filename_slug}.html` already exists in the archive.")
+
+                    st.caption(f"This will save `{filename_slug}.html` to the archive, update the homepage and archive index, and deploy to Netlify.")
+
+                    # Content counts for archive entry metadata
+                    deploy_counts = {}
+                    for item in selected_content:
+                        p = item.get('platform', 'other')
+                        deploy_counts[p] = deploy_counts.get(p, 0) + 1
+
+                    if st.button("🚀 Deploy to Website", type="primary", use_container_width=True):
+                        with st.spinner("Deploying to hyroxweekly.com..."):
+                            ws_dt = datetime.combine(week_start, datetime.min.time()) if not isinstance(week_start, datetime) else week_start
+                            we_dt = datetime.combine(week_end, datetime.min.time()) if not isinstance(week_end, datetime) else week_end
+                            success, steps = deploy_to_website(
+                                st.session_state.get('newsletter_website', ''),
+                                edition_num_deploy,
+                                ws_dt,
+                                we_dt,
+                                deploy_counts
+                            )
+                        if success:
+                            st.success("Deployed!")
+                            for step in steps:
+                                st.caption(f"✅ {step}")
+                        else:
+                            st.error("Deploy failed")
+                            for step in steps:
+                                icon = "✅" if "failed" not in step.lower() else "❌"
+                                st.caption(f"{icon} {step}")
+
+                    st.markdown("---")
+
+                    # Download fallback
+                    with st.expander("Manual download"):
                         st.download_button(
                             "📥 Download Website HTML",
                             st.session_state.get('newsletter_website', ''),
@@ -5145,10 +5827,7 @@ def main():
                             mime="text/html",
                             use_container_width=True
                         )
-                    
-                    with col2:
-                        st.text_input("Suggested filename:", filename_slug + ".html", disabled=True)
-                    
+
                     with st.expander("Preview Website HTML"):
                         st.components.v1.html(st.session_state.get('newsletter_website', ''), height=600, scrolling=True)
                 
@@ -5171,21 +5850,19 @@ def main():
                 
                 if st.button("✅ Mark as Published", type="primary"):
                     content_ids = [item['id'] for item in selected_content]
-                    edition_id = create_edition_record(st.session_state['edition_number'], content_ids)
-                    
-                    # Mark athletes as featured
-                    if 'featured_athlete_ids' in st.session_state:
-                        for athlete_id in st.session_state['featured_athlete_ids']:
-                            mark_athlete_featured(athlete_id)
-                    
+                    edition_id = create_edition_record(
+                        st.session_state['edition_number'],
+                        content_ids,
+                        week_start=week_start_date,
+                        week_end=week_end_date,
+                        intro_text=st.session_state.get('edition_overview', '')
+                    )
+
                     st.success(f"Edition #{st.session_state['edition_number']} published! (ID: {edition_id})")
                     del st.session_state['newsletter_html']
                     if 'newsletter_beehiiv' in st.session_state:
                         del st.session_state['newsletter_beehiiv']
                     del st.session_state['edition_number']
-                    if 'featured_athlete_ids' in st.session_state:
-                        del st.session_state['featured_athlete_ids']
-                    st.session_state['selected_athletes'] = []
                     st.rerun()
     
     # ========================================================================
@@ -5343,7 +6020,12 @@ SUPABASE_SERVICE_KEY=your_service_key_here
             """)
         else:
             # Premium tabs
-            premium_tab1, premium_tab2, premium_tab3, premium_tab4 = st.tabs(["📊 Subscribers", "🏃 Athlete Editions", "📈 Performance Topics", "📦 Content Library"])
+            premium_tab1, premium_tab2, premium_tab3, premium_tab4, premium_tab5 = st.tabs(
+                ["📊 Subscribers", "🏃 Athlete Editions", "📈 Performance Topics", "📦 Content Library", "🏷️ Athlete Tagging"])
+
+            # =================== ATHLETE TAGGING TAB (Phase 1) ===================
+            with premium_tab5:
+                render_athlete_tagging_tab()
 
             # =================== SUBSCRIBERS TAB ===================
             with premium_tab1:
@@ -6649,6 +7331,10 @@ SUPABASE_SERVICE_KEY=your_service_key_here
         st.markdown("## 📱 Instagram Content Creator")
         st.markdown("Generate branded Instagram posts from published newsletter content")
 
+        render_flyover_video_section()
+
+        st.markdown("---")
+
         # ── Section 1: Edition Selector ──
         st.markdown("### 1. Select Edition")
         editions = get_editions()
@@ -6880,6 +7566,226 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                                 st.markdown(f"{status_icon} **Content ID {ep.get('content_id')}** — {ep.get('status', 'draft')}")
                                 st.text(ep.get('caption', '')[:200] + ('...' if len(ep.get('caption', '')) > 200 else ''))
                                 st.markdown("---")
+
+            # ────────────────────────────────────────────────────────────
+            # ── Section 5: Generate Edition Reel (12-15s vertical video) ──
+            # ────────────────────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("### 📹 Generate Edition Reel")
+            st.caption(
+                "Renders a 12-15s 1080x1920 mp4 teasing this edition, "
+                "plus a Claude-written Instagram caption. Style rotates weekly."
+            )
+
+            REEL_STYLES = {
+                "auto":      "Auto rotate (recommended)",
+                "mosaic":    "Mosaic Flyover",
+                "scroll":    "Newsletter Scroll",
+                "headlines": "Headline Cuts",
+                "stack":     "Story Stack",
+                "spotlight": "Hero Spotlight",
+                "stats":     "Stats Reel",
+            }
+            _REEL_ROTATION = ["mosaic", "scroll", "headlines", "stack", "spotlight", "stats"]
+            _auto_pick = _REEL_ROTATION[
+                (int(selected_edition.get("edition_number") or 1) - 1) % len(_REEL_ROTATION)
+            ]
+
+            col_s, col_p, col_b = st.columns([2, 1, 1])
+            with col_s:
+                reel_style_key = st.selectbox(
+                    "Style",
+                    list(REEL_STYLES.keys()),
+                    format_func=lambda k: (
+                        f"{REEL_STYLES[k]} → {_auto_pick}" if k == "auto" else REEL_STYLES[k]
+                    ),
+                    key=f"reel_style_{edition_id}",
+                )
+            with col_p:
+                reel_preview = st.checkbox(
+                    "Preview mode",
+                    value=False,
+                    help="Render every 5th frame only — much faster, for iterating.",
+                    key=f"reel_preview_{edition_id}",
+                )
+            with col_b:
+                reel_save = st.checkbox(
+                    "Save draft",
+                    value=True,
+                    help="Insert a draft row into instagram_posts.",
+                    key=f"reel_save_{edition_id}",
+                )
+
+            generate_reel_clicked = st.button(
+                "🎬 Generate Reel",
+                type="primary",
+                key=f"btn_gen_reel_{edition_id}",
+            )
+
+            if generate_reel_clicked:
+                project_root = os.getcwd()
+                python_bin = os.path.join(project_root, "venv", "bin", "python")
+                if not os.path.exists(python_bin):
+                    python_bin = sys.executable
+                script_path = os.path.join(project_root, "Social", "generate_reel.py")
+
+                cmd = [
+                    python_bin, script_path,
+                    "--edition", str(selected_edition.get("edition_number")),
+                ]
+                if reel_style_key and reel_style_key != "auto":
+                    cmd += ["--style", reel_style_key]
+                if reel_preview:
+                    cmd += ["--preview"]
+                if not reel_save:
+                    cmd += ["--no-save"]
+
+                with st.status("Generating reel...", expanded=True) as status:
+                    st.code(" ".join(cmd), language="bash")
+                    log_box = st.empty()
+                    lines = []
+                    try:
+                        proc = subprocess.Popen(
+                            cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            bufsize=1,
+                            cwd=project_root,
+                        )
+                        for raw in proc.stdout:
+                            line = raw.rstrip()
+                            lines.append(line)
+                            # Keep log_box to the last ~25 lines so it stays readable on mobile
+                            log_box.code("\n".join(lines[-25:]))
+                        proc.wait(timeout=600)
+                        if proc.returncode == 0:
+                            status.update(label="Reel generated ✓", state="complete")
+                            st.session_state[f"reel_done_{edition_id}"] = True
+                        else:
+                            status.update(
+                                label=f"Generation failed (exit {proc.returncode})",
+                                state="error",
+                            )
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        status.update(label="Timed out after 10 min", state="error")
+                    except Exception as e:
+                        status.update(label=f"Error: {e}", state="error")
+
+            # ── Show latest reel outputs for this edition ──
+            reel_output_dir = os.path.join(os.getcwd(), "Social", "output")
+            if os.path.isdir(reel_output_dir):
+                ed_num = selected_edition.get("edition_number")
+                mp4s = sorted(
+                    [
+                        f for f in os.listdir(reel_output_dir)
+                        if f.startswith(f"edition-{ed_num}-") and f.endswith(".mp4")
+                    ],
+                    key=lambda f: os.path.getmtime(os.path.join(reel_output_dir, f)),
+                    reverse=True,
+                )
+                if mp4s:
+                    st.markdown("#### Latest renders")
+                    latest_path = os.path.join(reel_output_dir, mp4s[0])
+                    try:
+                        with open(latest_path, "rb") as vf:
+                            video_bytes = vf.read()
+                        st.video(video_bytes)
+                        st.download_button(
+                            f"⬇️ Download {mp4s[0]}",
+                            data=video_bytes,
+                            file_name=mp4s[0],
+                            mime="video/mp4",
+                            key=f"dl_reel_latest_{edition_id}",
+                        )
+                    except Exception as e:
+                        st.warning(f"Could not load video preview: {e}")
+
+                    # Caption (if generated)
+                    caption_path = os.path.join(
+                        reel_output_dir, f"edition-{ed_num}-caption.txt"
+                    )
+                    if os.path.exists(caption_path):
+                        # Version counter forces a fresh text_area widget
+                        # after a regen so Streamlit's session_state cache
+                        # for the old key doesn't show stale content.
+                        ver_key = f"reel_caption_ver_{edition_id}"
+                        if ver_key not in st.session_state:
+                            st.session_state[ver_key] = 0
+
+                        # --- Regen button rendered BEFORE the text_area so
+                        # the file is rewritten before we read it for display.
+                        cap_col1, cap_col2 = st.columns([1, 3])
+                        with cap_col1:
+                            regen_clicked = st.button(
+                                "🔄 Regenerate Caption",
+                                key=f"regen_caption_{edition_id}",
+                            )
+                        with cap_col2:
+                            st.caption("Re-rolls the caption (different hook, bullets, hashtags). Reel video is untouched.")
+
+                        if regen_clicked:
+                            with st.spinner("Re-generating caption..."):
+                                try:
+                                    project_root = os.getcwd()
+                                    if project_root not in sys.path:
+                                        sys.path.insert(0, project_root)
+                                    from Social.lib.caption import generate_edition_caption
+                                    from Social.lib.edition_data import load_edition
+
+                                    # Read the *current* caption now, just before
+                                    # regen, so we can pass it to Claude as a
+                                    # variation hint and compare before/after.
+                                    with open(caption_path, "r") as cf:
+                                        old_cap = cf.read()
+
+                                    ctx = load_edition(int(ed_num))
+                                    new_cap = generate_edition_caption(
+                                        ctx,
+                                        style_name=reel_style_key or "auto",
+                                        existing_captions=[old_cap] if old_cap.strip() else None,
+                                    )
+                                    if new_cap and new_cap.strip():
+                                        with open(caption_path, "w") as cf:
+                                            cf.write(new_cap)
+                                        st.session_state[ver_key] += 1
+                                        if new_cap.strip() == old_cap.strip():
+                                            st.warning("Claude returned an identical caption — click again to try.")
+                                        else:
+                                            st.success(f"✅ Caption regenerated — {len(new_cap)} chars (was {len(old_cap)}).")
+                                    else:
+                                        st.error("Empty caption returned — Claude may be unavailable.")
+                                except Exception as e:
+                                    import traceback
+                                    st.error(f"Regeneration failed: {e}")
+                                    with st.expander("Traceback"):
+                                        st.code(traceback.format_exc())
+
+                        # --- Now read the (possibly just-written) file and render.
+                        with open(caption_path, "r") as cf:
+                            cap_text = cf.read()
+                        st.text_area(
+                            "Instagram caption",
+                            value=cap_text,
+                            height=260,
+                            key=f"reel_caption_{edition_id}_{st.session_state[ver_key]}",
+                        )
+                        st.caption(
+                            f"{len(cap_text)} / 2,200 chars · "
+                            f"file: {os.path.basename(caption_path)} · "
+                            f"last modified: {datetime.fromtimestamp(os.path.getmtime(caption_path)).strftime('%H:%M:%S')}"
+                        )
+
+                    if len(mp4s) > 1:
+                        with st.expander(f"Older renders ({len(mp4s) - 1})"):
+                            for f in mp4s[1:]:
+                                fpath = os.path.join(reel_output_dir, f)
+                                mtime = datetime.fromtimestamp(os.path.getmtime(fpath))
+                                size_mb = os.path.getsize(fpath) / 1024 / 1024
+                                st.markdown(
+                                    f"- **{f}** — {size_mb:.1f} MB — {mtime.strftime('%b %d %H:%M')}"
+                                )
 
     # ========================================================================
     # SETTINGS PAGE
@@ -7126,11 +8032,6 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                 "Reddit Section",
                 value=config.get('section_title_reddit', 'Community Discussions'),
                 help="Title for the Reddit section"
-            )
-            config['section_title_athletes'] = st.text_input(
-                "Athletes Section",
-                value=config.get('section_title_athletes', '🏃 Athletes to Follow'),
-                help="Title for the athletes section"
             )
 
         st.markdown("---")
@@ -7382,7 +8283,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                 defaults = {
                     'newsletter_name': 'HYROX WEEKLY',
                     'tagline': 'Everything Hyrox, Every Week',
-                    'intro_template': "Welcome! This week we've curated {content_summary} of the best Hyrox content.",
+                    'intro_template': "This week we've rounded up {content_summary} of the best Hyrox content.",
                     'cta_heading': 'Never Miss an Edition',
                     'cta_subtext': 'The best Hyrox content, delivered weekly direct to your inbox.',
                     'cta_button_text': 'Subscribe',

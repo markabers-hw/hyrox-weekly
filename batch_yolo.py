@@ -176,7 +176,7 @@ def run_discovery_script(script_name, week_start_str, week_end_str):
         env['DISCOVERY_WEEK_END'] = week_end_str
         result = subprocess.run(
             [sys.executable, script_path],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=300,
             cwd=os.path.dirname(os.path.abspath(__file__)),
             env=env
         )
@@ -185,7 +185,7 @@ def run_discovery_script(script_name, week_start_str, week_end_str):
         found, saved = parse_discovery_output(output)
         return success, output, found, saved
     except subprocess.TimeoutExpired:
-        return False, "Timed out after 120s", 0, 0
+        return False, "Timed out after 300s", 0, 0
     except Exception as e:
         return False, str(e), 0, 0
 

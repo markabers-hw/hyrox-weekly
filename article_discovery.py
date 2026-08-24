@@ -35,6 +35,10 @@ DB_CONFIG = {
     'port': os.getenv('DB_PORT', '5432')
 }
 
+# Google Custom Search API (fallback for older weeks when RSS feeds have no results)
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+GOOGLE_CSE_ID = os.getenv('GOOGLE_CSE_ID')
+
 # Get week range from environment (set by dashboard) or default to past 14 days
 week_start_str = os.getenv('DISCOVERY_WEEK_START')
 week_end_str = os.getenv('DISCOVERY_WEEK_END')
@@ -351,6 +355,96 @@ def get_priority_article_sources():
         return []
 
 
+def search_google_cse(week_start, week_end, max_results=10):
+    """Search Google Custom Search API for Hyrox articles in a date range.
+
+    Useful as a fallback when RSS feeds don't have content for older weeks.
+    """
+    if not GOOGLE_API_KEY or not GOOGLE_CSE_ID:
+        return []
+
+    # Domains to exclude (not articles)
+    EXCLUDED_DOMAINS = {
+        'youtube.com', 'www.youtube.com', 'm.youtube.com',
+        'reddit.com', 'www.reddit.com', 'old.reddit.com',
+        'instagram.com', 'www.instagram.com',
+        'facebook.com', 'www.facebook.com', 'm.facebook.com',
+        'twitter.com', 'x.com',
+        'tiktok.com', 'www.tiktok.com',
+        'spotify.com', 'open.spotify.com',
+        'podcasts.apple.com',
+        'linkedin.com', 'www.linkedin.com',
+        'tripadvisor.com', 'www.tripadvisor.com',
+        'amazon.com', 'www.amazon.com',
+        'ebay.com', 'www.ebay.com',
+        'puma.com', 'sa.puma.com', 'us.puma.com',
+        'nike.com', 'www.nike.com',
+    }
+
+    # Format dates for Google CSE (YYYYMMDD)
+    date_restrict = f"date:r:{week_start.strftime('%Y%m%d')}:{week_end.strftime('%Y%m%d')}"
+
+    search_queries = ['hyrox', 'hyrox race', 'hyrox training']
+    all_results = []
+    seen_urls = set()
+
+    for query in search_queries:
+        try:
+            params = {
+                'key': GOOGLE_API_KEY,
+                'cx': GOOGLE_CSE_ID,
+                'q': query,
+                'sort': date_restrict,
+                'num': max_results,
+            }
+            response = requests.get('https://www.googleapis.com/customsearch/v1', params=params, timeout=15)
+
+            if response.status_code == 200:
+                items = response.json().get('items', [])
+                for item in items:
+                    url = item.get('link', '')
+                    if url in seen_urls:
+                        continue
+                    # Skip non-article domains
+                    domain = urlparse(url).netloc.lower()
+                    if domain in EXCLUDED_DOMAINS:
+                        continue
+                    seen_urls.add(url)
+
+                    # Parse date from snippet or metadata
+                    pub_date = week_start  # Default to week start
+                    metatags = item.get('pagemap', {}).get('metatags', [{}])[0] if item.get('pagemap', {}).get('metatags') else {}
+                    date_str = metatags.get('article:published_time', '') or metatags.get('og:article:published_time', '')
+                    if date_str:
+                        try:
+                            pub_date = datetime.fromisoformat(date_str.replace('Z', '+00:00')).replace(tzinfo=None)
+                        except Exception:
+                            pass
+
+                    all_results.append({
+                        'title': item.get('title', ''),
+                        'url': url,
+                        'description': item.get('snippet', ''),
+                        'source': urlparse(url).netloc.replace('www.', ''),
+                        'published_date': pub_date,
+                        'thumbnail_url': metatags.get('og:image', ''),
+                        'default_category': 'other',
+                        'is_priority': False,
+                        'skip_relevance_check': True,  # Google already searched for hyrox
+                    })
+            elif response.status_code == 429:
+                print("      Google CSE rate limited, stopping")
+                break
+            else:
+                print(f"      Google CSE error: {response.status_code}")
+
+            time.sleep(0.3)
+        except Exception as e:
+            print(f"      Google CSE error for '{query}': {e}")
+
+    return all_results
+
+
 def main():
     print("=" * 70)
     print("ARTICLE DISCOVERY - Hyrox Content (RSS Feeds)")
@@ -433,6 +527,17 @@ def main():
     priority_count = sum(1 for a in relevant if a.get('is_priority'))
     google_news_count = sum(1 for a in relevant if a.get('skip_relevance_check'))
     print(f"   {len(relevant)} Hyrox-relevant articles ({google_news_count} from Google News, {priority_count} from priority sources)")
+
+    # Fallback: Google Custom Search API for older weeks with few results
+    if len(relevant) < 3 and GOOGLE_API_KEY and GOOGLE_CSE_ID:
+        print(f"\n🔍 Few RSS results — trying Google Custom Search...")
+        cse_articles = search_google_cse(WEEK_START, WEEK_END)
+        if cse_articles:
+            # Deduplicate against existing
+            existing_urls = {a['url'] for a in relevant}
+            new_cse = [a for a in cse_articles if a['url'] not in existing_urls]
+            relevant.extend(new_cse)
+            print(f"   Found {len(new_cse)} additional articles via Google CSE")
 
     if not relevant:
         print("\n   No Hyrox-relevant articles found this week.")

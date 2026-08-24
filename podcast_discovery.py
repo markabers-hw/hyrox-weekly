@@ -67,6 +67,42 @@ HYROX_SEARCH_TERMS = [
 ]
 
 
+def fetch_episode_image_from_url(url):
+    """Fetch episode/show image by scraping the podcast page.
+
+    Tries to get the og:image from Apple Podcasts or Spotify/Anchor pages.
+    Returns the image URL or None if not found.
+    """
+    import re
+
+    if not url:
+        return None
+
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+        }
+
+        resp = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
+        if resp.status_code != 200:
+            return None
+
+        # Look for og:image meta tag
+        og_match = re.search(r'<meta property="og:image" content="([^"]+)"', resp.text)
+        if og_match:
+            img_url = og_match.group(1)
+
+            # For Apple Podcasts, upgrade to 600x600 if possible
+            if 'mzstatic.com' in img_url:
+                img_url = re.sub(r'/\d+x\d+bb\.', '/600x600bb.', img_url)
+
+            return img_url
+    except Exception:
+        pass
+
+    return None
+
+
 class SpotifyAPI:
     """Helper class for Spotify API interactions.
     
@@ -494,12 +530,67 @@ class PodcastDiscovery:
         return f"https://open.spotify.com/search/{encoded_query}/episodes"
     
     def generate_apple_podcasts_url(self, episode):
-        """Get or generate Apple Podcasts URL."""
+        """Get or generate Apple Podcasts URL via iTunes Lookup API."""
         if episode.get('apple_podcasts_url'):
             return episode['apple_podcasts_url']
-        
-        search_query = f"{episode.get('title', '')} {episode.get('podcast_title', '')}"
-        encoded_query = quote(search_query)
+
+        title = episode.get('title', '').lower()
+        show = episode.get('podcast_title', '')
+
+        try:
+            import re as _re
+            # Step 1: Find the show's collectionId
+            r = requests.get(
+                f"https://itunes.apple.com/search?term={quote(show)}&media=podcast&entity=podcast&limit=5",
+                timeout=10
+            )
+            if r.status_code != 200:
+                raise Exception("iTunes search failed")
+
+            show_results = r.json().get('results', [])
+            collection_id = None
+            show_url = None
+            for s in show_results:
+                name = s.get('collectionName', '').lower()
+                if show.lower() in name or name in show.lower():
+                    collection_id = s['collectionId']
+                    show_url = s.get('collectionViewUrl', '')
+                    break
+            if not collection_id and show_results:
+                collection_id = show_results[0]['collectionId']
+                show_url = show_results[0].get('collectionViewUrl', '')
+
+            if not collection_id:
+                raise Exception("No show found")
+
+            # Step 2: Lookup recent episodes for this show
+            r2 = requests.get(
+                f"https://itunes.apple.com/lookup?id={collection_id}&media=podcast&entity=podcastEpisode&limit=30",
+                timeout=10
+            )
+            if r2.status_code == 200:
+                episodes = [ep for ep in r2.json().get('results', []) if ep.get('wrapperType') == 'podcastEpisode']
+                # Match by title substring
+                title_prefix = title[:30]
+                for ep in episodes:
+                    ep_title = ep.get('trackName', '').lower()
+                    if title_prefix[:20] in ep_title or ep_title[:20] in title_prefix:
+                        return ep.get('trackViewUrl', '')
+                # Looser match — significant words
+                words = [w for w in _re.split(r'[\s\-\u2013:,]+', title) if len(w) > 4 and w not in ('hyrox', 'episode', 'podcast')]
+                for ep in episodes:
+                    ep_title = ep.get('trackName', '').lower()
+                    if sum(1 for w in words if w in ep_title) >= 2:
+                        return ep.get('trackViewUrl', '')
+
+            # Fall back to show page
+            if show_url:
+                return show_url
+        except Exception:
+            pass
+
+        # Last resort: search page
+        encoded_query = quote(f"{title} {show}")
         return f"https://podcasts.apple.com/search?term={encoded_query}"
 
 
@@ -641,6 +732,14 @@ class PodcastDatabaseManager:
             thumbnail = (episode.get('episode_image', '') or
                         episode.get('image', '') or
                         episode.get('podcast_image', ''))
+
+            # Try to get a better image from the episode page (Apple Podcasts or Spotify)
+            episode_url = episode.get('link', '') or episode.get('apple_podcasts_url', '')
+            if episode_url and ('podcasts.apple.com' in episode_url or 'spotify.com' in episode_url or 'anchor.fm' in episode_url):
+                scraped_image = fetch_episode_image_from_url(episode_url)
+                if scraped_image:
+                    thumbnail = scraped_image
+
             insert_vals.append(thumbnail)
         
         if 'description' in self.content_columns:
@@ -839,7 +938,7 @@ def fetch_episodes_from_rss(feed_url, feed_name):
                 'podcast_title': podcast_title,
                 'podcast_author': podcast_author,
                 'podcast_image': podcast_image,
-                'apple_podcasts_url': entry.get('link', ''),
+                'apple_podcasts_url': entry.get('link', '') if 'podcasts.apple.com' in entry.get('link', '') else '',
                 'feedId': feed_url,
                 'from_priority_rss': True,  # Flag to indicate this came from RSS
             }
@@ -1014,7 +1113,11 @@ def main():
             
         except Exception as e:
             print(f"   ✗ Error saving {title[:30]}: {e}")
-    
+            try:
+                db.conn.rollback()
+            except Exception:
+                pass
+
     db.close()
     
     # Summary

@@ -51,25 +51,92 @@ HYROX_KEYWORDS = [
 
 
 class RedditDiscovery:
+    """Reddit discovery via OAuth (app-only / client-credentials).
+
+    Reddit blocks unauthenticated access to the public `.json` endpoints (HTTP 403
+    from www.reddit.com and old.reddit.com as of 2026). Read-only public data now
+    requires an OAuth token from a registered app, used against oauth.reddit.com.
+    Register a free 'script' app at https://www.reddit.com/prefs/apps and set
+    REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET in .env.
+    """
+
+    OAUTH_BASE = "https://oauth.reddit.com"
+    TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
+
     def __init__(self):
-        self.headers = {'User-Agent': 'HyroxWeekly/1.0 (Content Aggregator)'}
-    
-    def fetch_subreddit(self, subreddit, limit=25, sort='new'):
-        """Fetch posts from a subreddit using specified sort."""
-        posts = []
-        url = f"https://www.reddit.com/r/{subreddit}/{sort}.json?limit={limit}"
-        
+        self.client_id = os.getenv('REDDIT_CLIENT_ID')
+        self.client_secret = os.getenv('REDDIT_CLIENT_SECRET')
+        # Reddit requires a unique, descriptive User-Agent.
+        self.user_agent = os.getenv(
+            'REDDIT_USER_AGENT', 'python:com.hyroxweekly.discovery:v2.0 (by /u/hyroxweekly)')
+        self.token = None
+        self.enabled = bool(self.client_id and self.client_secret)
+        if not self.enabled:
+            print("      ⚠️  Reddit OAuth not configured — Reddit discovery will be skipped.")
+            print("         Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET in .env")
+            print("         (register a free 'script' app at https://www.reddit.com/prefs/apps).")
+        else:
+            self._authenticate()
+
+    def _authenticate(self):
+        """Fetch an app-only OAuth token (client-credentials grant, read-only public data)."""
         try:
-            response = requests.get(url, headers=self.headers, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            
+            resp = requests.post(
+                self.TOKEN_URL,
+                auth=(self.client_id, self.client_secret),
+                data={'grant_type': 'client_credentials'},
+                headers={'User-Agent': self.user_agent},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                self.token = resp.json().get('access_token')
+                print("      🔑 Reddit OAuth token acquired")
+            else:
+                print(f"      ❌ Reddit auth failed: {resp.status_code} {resp.text[:120]}")
+                self.token = None
+        except Exception as e:
+            print(f"      ❌ Reddit auth error: {e}")
+            self.token = None
+
+    def _get(self, path, params=None):
+        """GET an oauth.reddit.com path with the bearer token; refresh once on 401."""
+        if not self.token:
+            return None
+        url = f"{self.OAUTH_BASE}{path}"
+        headers = {'User-Agent': self.user_agent, 'Authorization': f'Bearer {self.token}'}
+        resp = requests.get(url, headers=headers, params=params, timeout=15)
+        if resp.status_code == 401:
+            # Token expired mid-run — re-auth and retry once.
+            self._authenticate()
+            if not self.token:
+                return None
+            headers['Authorization'] = f'Bearer {self.token}'
+            resp = requests.get(url, headers=headers, params=params, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+
+    def fetch_subreddit(self, subreddit, limit=25, sort='new', time_filter=None):
+        """Fetch posts from a subreddit using specified sort.
+
+        time_filter applies to time-bounded sorts ('top', 'controversial')
+        and accepts hour/day/week/month/year/all.
+        """
+        posts = []
+        params = {'limit': limit}
+        if time_filter and sort in ('top', 'controversial'):
+            params['t'] = time_filter
+
+        try:
+            data = self._get(f"/r/{subreddit}/{sort}", params=params)
+            if not data:
+                return posts
+
             for post in data.get('data', {}).get('children', []):
                 post_data = post.get('data', {})
-                
+
                 if post_data.get('stickied'):
                     continue
-                
+
                 title = post_data.get('title', '')
                 url = post_data.get('url', '')
                 selftext = post_data.get('selftext', '')
@@ -112,7 +179,6 @@ class RedditDiscovery:
     def search_subreddit(self, subreddit, query, limit=50, sort='relevance', time_filter='month'):
         """Search within a subreddit for specific terms."""
         posts = []
-        url = f"https://www.reddit.com/r/{subreddit}/search.json"
         params = {
             'q': query,
             'restrict_sr': 'on',  # Restrict to subreddit
@@ -120,12 +186,12 @@ class RedditDiscovery:
             't': time_filter,  # all, hour, day, week, month, year
             'limit': limit
         }
-        
+
         try:
-            response = requests.get(url, headers=self.headers, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            
+            data = self._get(f"/r/{subreddit}/search", params=params)
+            if not data:
+                return posts
+
             for post in data.get('data', {}).get('children', []):
                 post_data = post.get('data', {})
                 
@@ -261,23 +327,40 @@ def main():
     all_posts = []
     
     print("\n📥 Fetching Reddit posts...")
-    
-    # Method 1: Fetch recent posts from subreddits using 'new' sort
+
+    # Method 1a: Fetch recent posts from subreddits using 'new' sort
     for sub in SUBREDDITS:
         print(f"   -> r/{sub['name']} (new posts)...")
         # Increase limit for historical searches
         limit = sub['limit'] * 3 if is_historical else sub['limit']
         posts = discovery.fetch_subreddit(sub['name'], limit=limit, sort='new')
-        
+
         # Filter if needed
         if sub['filter_keywords']:
             posts = [p for p in posts if is_hyrox_relevant(p)]
             print(f"      Found {len(posts)} Hyrox-related posts")
         else:
             print(f"      Found {len(posts)} posts")
-        
+
         all_posts.extend(posts)
         time.sleep(1)  # Be nice to Reddit API
+
+    # Method 1b: Fetch TOP-of-week posts so we catch high-engagement
+    # threads that may have been posted early in the week and accrued
+    # replies later (sort='new' with a small N misses these).
+    print("\n📥 Fetching top-of-week posts (catches high-discussion threads)...")
+    for sub in SUBREDDITS:
+        print(f"   -> r/{sub['name']} (top/week)...")
+        posts = discovery.fetch_subreddit(sub['name'], limit=100, sort='top', time_filter='week')
+
+        if sub['filter_keywords']:
+            posts = [p for p in posts if is_hyrox_relevant(p)]
+            print(f"      Found {len(posts)} Hyrox-related posts")
+        else:
+            print(f"      Found {len(posts)} posts")
+
+        all_posts.extend(posts)
+        time.sleep(1)
     
     # Method 2: Search for 'hyrox' across subreddits (better for historical posts)
     print("\n🔍 Searching for 'hyrox' posts...")
