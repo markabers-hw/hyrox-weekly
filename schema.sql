@@ -104,7 +104,8 @@ CREATE TABLE instagram_posts (
     content_id INTEGER REFERENCES content_items(id), -- if post is about specific content
     
     post_type VARCHAR(20), -- feed, carousel, story, reel
-    caption TEXT,
+    caption TEXT, -- edited/final caption
+    ai_caption TEXT, -- original AI-generated caption (for style learning)
     image_urls TEXT[], -- array of image URLs
     
     status VARCHAR(20) DEFAULT 'draft', -- draft, scheduled, posted
