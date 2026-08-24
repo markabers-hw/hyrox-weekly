@@ -47,6 +47,14 @@
   to = "/athletes/index.html"
   status = 200
 
+# Athlete Edition pages (static, currently hidden — uncomment to go live)
+# [[redirects]]
+#   from = "/athletes/alex-roncevic"
+#   to = "/athletes/alex-roncevic.html"
+#   status = 200
+# (... 9 more athlete redirects — see git history)
+
+# Dynamic profile for all athletes
 [[redirects]]
   from = "/athletes/:slug"
   to = "/athletes/profile.html?slug=:slug"

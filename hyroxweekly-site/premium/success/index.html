@@ -270,24 +270,22 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
 </footer>
 
 <script>
-// Check for session_id to verify success
-const urlParams = new URLSearchParams(window.location.search);
-const sessionId = urlParams.get('session_id');
-
-if (sessionId) {
-  // Could verify the session with Stripe here if needed
-  console.log('Checkout session:', sessionId);
-}
-
-// Show early bird badge if applicable (would come from API in production)
-// For now, show it as a demo
 const badge = document.getElementById('earlyBirdBadge');
 const numberEl = document.getElementById('earlyBirdNumber');
 
-// In production, this would come from the webhook data
-// For demo purposes, showing early bird badge
-badge.classList.add('show');
-numberEl.textContent = Math.floor(Math.random() * 50) + 1;
+(async function() {
+  try {
+    const res = await fetch('/api/get-pricing');
+    const pricing = await res.json();
+    if (pricing.isEarlyBirdAvailable) {
+      // Displayed number = 100 - spots remaining
+      numberEl.textContent = 100 - pricing.earlyBirdRemaining;
+      badge.classList.add('show');
+    }
+  } catch (e) {
+    // If pricing fetch fails, don't show badge
+  }
+})();
 </script>
 
 </body>

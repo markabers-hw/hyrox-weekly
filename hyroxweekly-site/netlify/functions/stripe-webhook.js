@@ -40,8 +40,9 @@ async function sendMagicLinkEmail(email, token, earlyBirdNumber) {
   const baseUrl = process.env.URL || 'https://hyroxweekly.com';
   const magicLink = `${baseUrl}/auth/verify?token=${token}`;
 
-  const earlyBirdText = earlyBirdNumber
-    ? `You're Early Bird #${earlyBirdNumber} - thanks for being an early supporter!`
+  const displayNumber = earlyBirdNumber ? getDisplayedEarlyBirdNumber(earlyBirdNumber) : null;
+  const earlyBirdText = displayNumber
+    ? `You're Early Bird #${displayNumber} of 100 - thanks for being an early supporter!`
     : '';
 
   try {
@@ -83,6 +84,9 @@ async function sendMagicLinkEmail(email, token, earlyBirdNumber) {
   }
 }
 
+// Offset so displayed early bird numbers don't reveal true subscriber count
+const EARLY_BIRD_OFFSET = 53;
+
 // Get early bird status
 async function checkEarlyBirdAvailable() {
   const { count, error } = await supabase
@@ -96,10 +100,10 @@ async function checkEarlyBirdAvailable() {
     return true; // Default to available if error
   }
 
-  return (count || 0) < 100;
+  return (count || 0) + EARLY_BIRD_OFFSET < 100;
 }
 
-// Get next early bird number
+// Get next early bird number (with offset for display)
 async function getNextEarlyBirdNumber() {
   const { data, error } = await supabase
     .from('subscribers')
@@ -113,6 +117,11 @@ async function getNextEarlyBirdNumber() {
   }
 
   return (data[0].early_bird_number || 0) + 1;
+}
+
+// Get the displayed early bird number (with offset applied)
+function getDisplayedEarlyBirdNumber(realNumber) {
+  return realNumber + EARLY_BIRD_OFFSET;
 }
 
 exports.handler = async (event) => {
@@ -224,6 +233,23 @@ exports.handler = async (event) => {
 
         // Ensure newsletter subscriber record exists
         await ensureNewsletterSubscriber(email);
+
+        // Send push notification via ntfy
+        try {
+          const ntfyTopic = process.env.NTFY_TOPIC || 'hyroxweekly-subs-x7k9m2';
+          const isEarlyBirdLabel = isEarlyBird ? ` (Early Bird #${earlyBirdNumber + 53}!)` : '';
+          await fetch(`https://ntfy.sh/${ntfyTopic}`, {
+            method: 'POST',
+            headers: {
+              Title: 'New Premium subscriber!',
+              Tags: 'money_mouth_face,star',
+              Priority: '4',
+            },
+            body: `${email}\nTier: ${tier}${isEarlyBirdLabel}`,
+          });
+        } catch (ntfyErr) {
+          console.error('ntfy notification failed:', ntfyErr);
+        }
 
         console.log(`Subscriber processed: ${email} (${tier}, early bird #${earlyBirdNumber})`);
         break;

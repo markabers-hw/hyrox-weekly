@@ -26,8 +26,9 @@ async function sendWelcomeEmail(email, name) {
 
   try {
     await resend.emails.send({
-      from: process.env.EMAIL_FROM || 'Hyrox Weekly <newsletter@hyroxweekly.com>',
+      from: 'Hyrox Weekly <team@hyroxweekly.com>',
       to: email,
+      bcc: 'markabers@gmail.com',
       subject: 'Welcome to Hyrox Weekly!',
       html: `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -38,7 +39,7 @@ async function sendWelcomeEmail(email, name) {
           </p>
 
           <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6;">
-            You're now on the list. Every week you'll get the best Hyrox videos, podcasts, training tips, and community discussions — all in one email.
+            You're now on the list. Every week you'll get the best Hyrox videos, podcasts, training tips, and community discussions, all in one email.
           </p>
 
           <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6;">
@@ -49,10 +50,18 @@ async function sendWelcomeEmail(email, name) {
             Browse the Archive
           </a>
 
+          <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6;">
+            We'd love to hear what you think. Got feedback, content suggestions, or just want to say hi? Hit reply any time.
+          </p>
+
+          <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6;">
+            The Team at Hyrox Weekly
+          </p>
+
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 32px 0;">
 
           <p style="color: #9ca3af; font-size: 12px;">
-            Hyrox Weekly — Everything Hyrox, Every Week.
+            Hyrox Weekly. Everything Hyrox, Every Week.
           </p>
         </div>
       `
@@ -124,6 +133,21 @@ exports.handler = async (event) => {
 
     // Send welcome email (don't block response on failure)
     await sendWelcomeEmail(email, name);
+
+    // Send push notification via ntfy
+    try {
+      const ntfyTopic = process.env.NTFY_TOPIC || 'hyroxweekly-subs-x7k9m2';
+      await fetch(`https://ntfy.sh/${ntfyTopic}`, {
+        method: 'POST',
+        headers: {
+          Title: 'New Hyrox Weekly subscriber!',
+          Tags: 'tada,newspaper',
+        },
+        body: `${email}${name ? ` (${name})` : ''}\nSource: website`,
+      });
+    } catch (ntfyErr) {
+      console.error('ntfy notification failed:', ntfyErr);
+    }
 
     return {
       statusCode: 200,

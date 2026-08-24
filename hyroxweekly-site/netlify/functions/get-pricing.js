@@ -26,7 +26,9 @@ exports.handler = async (event) => {
 
     if (!error) {
       const earlyBirdCount = count || 0;
-      earlyBirdRemaining = Math.max(0, earlyBirdLimit - earlyBirdCount);
+      // Offset so the public count starts lower (doesn't reveal true subscriber count)
+      const EARLY_BIRD_OFFSET = 53;
+      earlyBirdRemaining = Math.max(0, earlyBirdLimit - earlyBirdCount - EARLY_BIRD_OFFSET);
       isEarlyBirdAvailable = earlyBirdRemaining > 0;
     } else {
       console.error('Database error:', error.message);
