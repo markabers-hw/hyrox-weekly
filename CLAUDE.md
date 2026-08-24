@@ -4,7 +4,7 @@
 Hyrox Weekly is a free newsletter that curates the best Hyrox fitness content from across the internet each week. The goal is to become the definitive source for everything Hyrox-related, serving the hybrid fitness community.
 
 **Website:** HyroxWeekly.com (Netlify)  
-**Distribution:** Beehiiv  
+**Distribution:** Resend (direct API send from Streamlit dashboard)  
 **Publishing Schedule:** Monday 3:00 PM Sydney time (hits US Sunday planning, EU Monday morning)
 
 ## Tech Stack
@@ -14,7 +14,7 @@ Hyrox Weekly is a free newsletter that curates the best Hyrox fitness content fr
 - **Curation Interface:** Streamlit dashboard
 - **Newsletter Generation:** Jinja2 templates
 - **Hosting:** AWS (backend), Netlify (frontend)
-- **Distribution:** Beehiiv
+- **Distribution:** Resend (transactional email API)
 
 ## Architecture Overview
 
@@ -33,7 +33,7 @@ Hyrox Weekly is a free newsletter that curates the best Hyrox fitness content fr
                                                           │
                                                           ▼
                                                  ┌─────────────────┐
-                                                 │  Beehiiv        │
+                                                 │  Resend API     │
                                                  │  (distribution) │
                                                  └─────────────────┘
 ```
@@ -113,7 +113,7 @@ Each script fetches content and stores it in PostgreSQL with engagement metrics.
 ### Newsletter Generator
 - `newsletter_generator_v2.py` - Current generator (use this one)
 - `newsletter_generator.py` - Original version (legacy)
-- Outputs HTML ready for Beehiiv
+- Outputs inline-styled HTML sent directly to subscribers via Resend (`send_newsletter_via_resend` in `hyrox_dashboard.py`)
 
 ### Website (hyroxweekly-site/)
 - Static site hosted on Netlify
@@ -128,7 +128,7 @@ Each script fetches content and stores it in PostgreSQL with engagement metrics.
 |-------|---------|
 | `creators` | Content creators/sources (YouTube channels, podcasts, blogs) |
 | `content_items` | Discovered content with engagement metrics and curation status |
-| `weekly_editions` | Published newsletter editions with Beehiiv integration |
+| `weekly_editions` | Published newsletter editions (tracks edition number, dates, Resend send status) |
 | `edition_content` | Many-to-many linking content to editions (with display order, section, featured flag) |
 | `content_categories` | Reference table for content categories |
 
@@ -186,7 +186,7 @@ Time decay: `1 / (1 + days_old × 0.1)`
 | Premium | Tuesday (early access) | TBD |
 
 **Implementation needs:**
-- Beehiiv premium tier setup
+- Premium subscriber segmentation in subscribers table
 - Database flag for premium content
 - Separate generation workflow for premium vs free
 - Landing page copy
@@ -210,8 +210,8 @@ DB_PORT=5432
 ```
 YOUTUBE_API_KEY=
 ```
-BEEHIIV_API_KEY=
-BEEHIIV_PUBLICATION_ID=
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=Hyrox Weekly <team@hyroxweekly.com>
 ```
 GOOGLE_API_KEY=
 GOOGLE_CSE_ID=
