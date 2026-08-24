@@ -52,3 +52,9 @@ Social/
 # Local content dumps
 content_items_full.json
 content_items_listing.txt
+
+# Subscriber PII — repo is public
+subscribers.json
+
+# Runtime logs
+logs/
