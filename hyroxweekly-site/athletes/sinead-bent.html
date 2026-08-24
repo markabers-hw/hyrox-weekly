@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sinead Bent - Athlete Edition | Hyrox Weekly</title>
+<meta name="description" content="Everything you need to know about Sinead Bent - curated videos, podcasts, interviews, and articles. Hyrox Weekly Athlete Edition.">
+
+<meta property="og:type" content="profile">
+<meta property="og:title" content="Sinead Bent - Hyrox Weekly Athlete Edition">
+<meta property="og:description" content="The definitive guide to Sinead Bent - training, racing, interviews, and more.">
+<meta property="og:url" content="https://hyroxweekly.com/athletes/sinead-bent">
+
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Barlow', sans-serif; line-height: 1.6; background: #1a1a1a; min-height: 100vh; color: #fff; }
+
+.nav {
+  padding: 16px 0;
+  position: fixed;
+  width: 100%;
+  top: 0;
+  z-index: 1000;
+  background: rgba(26,26,26,0.95);
+  backdrop-filter: blur(10px);
+}
+.nav-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.nav-brand {
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+  text-decoration: none;
+  letter-spacing: 3px;
+}
+.nav-links {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+.nav-links a {
+  color: rgba(255,255,255,0.7);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+.nav-links a:hover { color: #fff; }
+.nav-links a.active { color: #CC5500; }
+.premium-badge-nav {
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 10px;
+  letter-spacing: 1px;
+}
+
+.profile-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 100px 24px 60px;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(255,255,255,0.5);
+  text-decoration: none;
+  font-size: 14px;
+  margin-bottom: 30px;
+}
+.back-link:hover { color: #fff; }
+
+.profile-header {
+  display: flex;
+  gap: 32px;
+  margin-bottom: 48px;
+  align-items: flex-start;
+}
+.profile-image {
+  width: 160px;
+  height: 160px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #CC5500, #ff6b35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 72px;
+  flex-shrink: 0;
+}
+.profile-info h1 {
+  font-size: 36px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+.profile-meta {
+  display: flex;
+  gap: 16px;
+  color: rgba(255,255,255,0.5);
+  font-size: 15px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.profile-bio {
+  color: rgba(255,255,255,0.7);
+  font-size: 16px;
+  line-height: 1.7;
+  max-width: 550px;
+  margin-bottom: 20px;
+}
+.social-links {
+  display: flex;
+  gap: 12px;
+}
+.social-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: #fff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.social-link:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.2);
+}
+
+.content-section {
+  margin-bottom: 48px;
+}
+.section-title {
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.section-intro {
+  color: rgba(255,255,255,0.5);
+  font-size: 14px;
+  margin-bottom: 16px;
+  margin-top: -8px;
+}
+
+.own-channel-section {
+  background: rgba(204, 85, 0, 0.05);
+  border: 1px solid rgba(204, 85, 0, 0.15);
+  border-radius: 16px;
+  padding: 24px;
+}
+.own-channel-section .section-title {
+  border-bottom-color: rgba(204, 85, 0, 0.2);
+  color: #CC5500;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.content-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  display: block;
+}
+.content-card:hover {
+  border-color: rgba(204, 85, 0, 0.5);
+  transform: translateY(-4px);
+}
+.content-thumbnail {
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #2a2a2a;
+  position: relative;
+  overflow: hidden;
+}
+.content-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.content-duration {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.content-platform {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 20px;
+}
+.content-info {
+  padding: 16px;
+}
+.content-title {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.content-meta {
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  display: flex;
+  gap: 12px;
+}
+.content-meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.premium-gate {
+  text-align: center;
+  padding: 60px 20px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  margin-top: 40px;
+}
+.premium-gate h2 { font-size: 24px; margin-bottom: 16px; }
+.premium-gate p { color: rgba(255,255,255,0.5); margin-bottom: 24px; }
+.btn-primary {
+  display: inline-block;
+  padding: 14px 32px;
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  border: none;
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.footer { padding: 40px 24px; text-align: center; }
+.footer p { color: rgba(255,255,255,0.3); font-size: 12px; }
+.footer a { color: rgba(255,255,255,0.5); text-decoration: none; margin: 0 12px; }
+
+.edition-badge {
+  display: inline-block;
+  background: linear-gradient(90deg, #CC5500, #ff6b35);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 700px) {
+  .profile-header { flex-direction: column; align-items: center; text-align: center; }
+  .profile-info h1 { font-size: 28px; }
+  .profile-meta { justify-content: center; }
+  .profile-bio { max-width: 100%; }
+  .social-links { justify-content: center; }
+  .nav-links { display: none; }
+  .content-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-container">
+    <a href="/" class="nav-brand">HYROX WEEKLY</a>
+    <div class="nav-links">
+      <a href="/archive">Archive</a>
+      <a href="/athletes" class="active">Athletes</a>
+      <a href="/performance">Performance</a>
+      <a href="/premium/portal" class="premium-badge-nav">PREMIUM</a>
+    </div>
+  </div>
+</nav>
+
+<main class="profile-page">
+  <a href="/athletes" class="back-link">&larr; All Athletes</a>
+
+  <div class="profile-header">
+    <div class="profile-image">&#127939;</div>
+    <div class="profile-info">
+      <span class="edition-badge">Athlete Edition</span>
+      <h1>Sinead Bent</h1>
+      <div class="profile-meta">
+        <span>Women's Elite</span>
+      </div>
+      <p class="profile-bio">EMEA Regional Champion and Women&#x27;s Open World Record holder. Sinead went from HYROX newcomer to Elite 15 contender in just one year.</p>
+      <div class="social-links">
+        <a href="https://instagram.com/sineadbentx" target="_blank" rel="noopener" class="social-link">&#128247; Instagram</a>
+      </div>
+    </div>
+  </div>
+
+  <div id="editionContent">
+    
+    <div class="content-section">
+      <div class="section-title">▶️ Featured Videos</div>
+      <div class="content-grid">
+        <a href="https://www.youtube.com/watch?v=r5nsGSxHO6I" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://i.ytimg.com/vi/r5nsGSxHO6I/hqdefault.jpg" alt="" loading="lazy">
+        <span class="content-duration">26:10</span>
+        <span class="content-platform">&#9654;&#65039;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">Three-time Hyrox World Champion Lauren Weeks and Elite 15 athlete Sinead Bent prep for 25/26 major </div>
+        <div class="content-meta">
+          <span>&#128065; 36.2K</span>
+          <span>2025-12-09</span>
+        </div>
+      </div>
+    </a>
+<a href="https://www.youtube.com/watch?v=8HajdorMgWs" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://i.ytimg.com/vi/8HajdorMgWs/hqdefault.jpg" alt="" loading="lazy">
+        <span class="content-duration">40:48</span>
+        <span class="content-platform">&#9654;&#65039;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">Sinéad Bent - HYROX Women&#x27;s Open World Record Holder</div>
+        <div class="content-meta">
+          <span>&#128065; 3.8K</span>
+          <span>2024-12-19</span>
+        </div>
+      </div>
+    </a>
+<a href="https://www.youtube.com/watch?v=PMcNqxu-5Ds" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://i.ytimg.com/vi/PMcNqxu-5Ds/hqdefault.jpg" alt="" loading="lazy">
+        <span class="content-duration">48:53</span>
+        <span class="content-platform">&#9654;&#65039;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">Hyrox World Record Holder: Inside Sinead Bent’s Rise to the Top With Sinead Bent</div>
+        <div class="content-meta">
+          <span>&#128065; 228</span>
+          <span>2026-04-01</span>
+        </div>
+      </div>
+    </a>
+<a href="https://www.youtube.com/watch?v=9H0pugI1-14" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://i.ytimg.com/vi/9H0pugI1-14/hqdefault.jpg" alt="" loading="lazy">
+        <span class="content-duration">1:52:23</span>
+        <span class="content-platform">&#9654;&#65039;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">🔴 LIVE | ELITE 15 WOMEN | HYROX MELBOURNE MAJOR</div>
+        <div class="content-meta">
+          <span>&#128065; 99.0K</span>
+          <span>2025-12-12</span>
+        </div>
+      </div>
+    </a>
+<a href="https://www.youtube.com/watch?v=RF3mUqYa8bQ" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://i.ytimg.com/vi/RF3mUqYa8bQ/hqdefault.jpg" alt="" loading="lazy">
+        <span class="content-duration">1:07:28</span>
+        <span class="content-platform">&#9654;&#65039;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">BARCELONA LAST CHANCE QUALIFIER | WOMEN&#x27;S PRO HIGHLIGHTS</div>
+        <div class="content-meta">
+          <span>&#128065; 74.1K</span>
+          <span>2025-04-26</span>
+        </div>
+      </div>
+    </a>
+<a href="https://www.youtube.com/watch?v=bfF3paxm-_4" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://i.ytimg.com/vi/bfF3paxm-_4/hqdefault.jpg" alt="" loading="lazy">
+        <span class="content-duration">1:28:29</span>
+        <span class="content-platform">&#9654;&#65039;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">🔴 LIVE | ELITE 15 WOMEN | HYROX LONDON EMEA CHAMPIONSHIPS</div>
+        <div class="content-meta">
+          <span>&#128065; 66.9K</span>
+          <span>2026-03-20</span>
+        </div>
+      </div>
+    </a>
+<a href="https://www.youtube.com/watch?v=7qYDpV7cgFU" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://i.ytimg.com/vi/7qYDpV7cgFU/hqdefault.jpg" alt="" loading="lazy">
+        <span class="content-duration">17:41</span>
+        <span class="content-platform">&#9654;&#65039;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">ELITE 15 WOMEN - RACE HIGHLIGHTS | BYD HYROX MELBOURNE MAJOR</div>
+        <div class="content-meta">
+          <span>&#128065; 24.5K</span>
+          <span>2025-12-12</span>
+        </div>
+      </div>
+    </a>
+      </div>
+    </div>
+    <div class="content-section">
+      <div class="section-title">&#127911; Podcasts &amp; Interviews</div>
+      <div class="content-grid">
+        <a href="https://traffic.libsyn.com/secure/ukhxr/Sinead_Bent.mp3?dest-id=3254330" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://is1-ssl.mzstatic.com/image/thumb/Podcasts126/v4/48/16/ac/4816ac00-b1ff-a1b0-e106-0588140eb949/mza_14598252601791141433.png/600x600bb.jpg" alt="" loading="lazy">
+        <span class="content-duration">1:05:46</span>
+        <span class="content-platform">&#127911;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">From Newcomer to HYROX Elite in 1 year - Sinéad Bent</div>
+        <div class="content-meta">
+          
+          <span>2025-05-14</span>
+        </div>
+      </div>
+    </a>
+<a href="https://traffic.megaphone.fm/APO4574588188.mp3" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/c2/30/4f/c2304f85-16c9-376a-7ab3-30ad207d6c13/mza_11279699266158177720.jpg/600x600bb.jpg" alt="" loading="lazy">
+        <span class="content-duration">48:52</span>
+        <span class="content-platform">&#127911;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">Hyrox World Record Holder: Inside Sinead Bent’s Rise to the Top With Sinead Bent</div>
+        <div class="content-meta">
+          
+          <span>2026-03-31</span>
+        </div>
+      </div>
+    </a>
+<a href="https://anchor.fm/s/bde82534/podcast/play/95891158/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2024-11-16%2F391631816-44100-2-8bff3cc30b1a6.mp3" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/0b/c5/8b/0bc58bbe-eb4a-bd5a-5ae7-43104b4b3698/mza_11874321689632782579.jpg/600x600bb.jpg" alt="" loading="lazy">
+        <span class="content-duration">43:44</span>
+        <span class="content-platform">&#127911;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">Sinéad Bent - Women&#x27;s Open World Record Holder</div>
+        <div class="content-meta">
+          
+          <span>2024-12-19</span>
+        </div>
+      </div>
+    </a>
+<a href="https://anchor.fm/s/104ad31a8/podcast/play/103642886/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2025-5-4%2F2f763226-028b-cdc7-ad4b-39274cbdb201.mp3" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/88/e6/de/88e6de98-a0dd-823e-9fb4-6980788563f4/mza_6319347005949692279.jpg/600x600bb.jpg" alt="" loading="lazy">
+        <span class="content-duration">2:03:25</span>
+        <span class="content-platform">&#127911;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">Ep #44 HYROX World Championships 24-25 Preview with Ian Kay</div>
+        <div class="content-meta">
+          
+          <span>2025-06-04</span>
+        </div>
+      </div>
+    </a>
+<a href="https://anchor.fm/s/104ad31a8/podcast/play/104607135/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2025-5-25%2F402770048-44100-2-fe174ac040154.mp3" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/88/e6/de/88e6de98-a0dd-823e-9fb4-6980788563f4/mza_6319347005949692279.jpg/600x600bb.jpg" alt="" loading="lazy">
+        <span class="content-duration">1:51:10</span>
+        <span class="content-platform">&#127911;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">Ep #46 HYROX World Championships Recap w/ UKHXR &amp; Hyrox Daily</div>
+        <div class="content-meta">
+          
+          <span>2025-06-25</span>
+        </div>
+      </div>
+    </a>
+<a href="https://anchor.fm/s/e70d0bdc/podcast/play/102848524/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2025-4-20%2F400654300-44100-2-b457523e23214.mp3" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/21/5f/6b/215f6b29-c349-ef87-088d-a62a6c85fd22/mza_8849008933257516987.jpg/600x600bb.jpg" alt="" loading="lazy">
+        <span class="content-duration">1:44:59</span>
+        <span class="content-platform">&#127911;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">HYROX Women’s Elite 15 Deep Dive</div>
+        <div class="content-meta">
+          
+          <span>2025-05-19</span>
+        </div>
+      </div>
+    </a>
+<a href="https://anchor.fm/s/104ad31a8/podcast/play/112120329/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2025-11-4%2F413727872-44100-2-6cd9b248e4669.mp3" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/88/e6/de/88e6de98-a0dd-823e-9fb4-6980788563f4/mza_6319347005949692279.jpg/600x600bb.jpg" alt="" loading="lazy">
+        <span class="content-duration">1:42:12</span>
+        <span class="content-platform">&#127911;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">Ep #56 Hyrox Melbourne Major Preview with UKHXR</div>
+        <div class="content-meta">
+          
+          <span>2025-12-04</span>
+        </div>
+      </div>
+    </a>
+<a href="https://anchor.fm/s/1041b9644/podcast/play/103741525/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2025-5-6%2F401677344-44100-2-830de9f9e514b.mp3" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/6b/44/eb/6b44eba6-d4ec-4b44-a3fa-e28537185c55/mza_4743925534931409354.jpg/600x600bb.jpg" alt="" loading="lazy">
+        <span class="content-duration">1:40:27</span>
+        <span class="content-platform">&#127911;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">EP 7 - HYROX New York &amp; Cardiff reviews PLUS special guests from Elite 15 doubles!</div>
+        <div class="content-meta">
+          
+          <span>2025-06-06</span>
+        </div>
+      </div>
+    </a>
+<a href="https://anchor.fm/s/e70d0bdc/podcast/play/112676160/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2025-11-15%2F414438025-44100-2-320a693368b5f.mp3" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://is1-ssl.mzstatic.com/image/thumb/Podcasts211/v4/21/5f/6b/215f6b29-c349-ef87-088d-a62a6c85fd22/mza_8849008933257516987.jpg/600x600bb.jpg" alt="" loading="lazy">
+        <span class="content-duration">1:16:39</span>
+        <span class="content-platform">&#127911;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">HYROX Melbourne Elite Breakdown</div>
+        <div class="content-meta">
+          
+          <span>2025-12-15</span>
+        </div>
+      </div>
+    </a>
+<a href="https://anchor.fm/s/46cd9e34/podcast/play/114348736/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2026-0-21%2F416567783-44100-2-97db10e83c99b.mp3" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/d1/47/e7/d147e705-9c73-a316-f129-93d35ebe7362/mza_11151362429019999735.jpg/600x600bb.jpg" alt="" loading="lazy">
+        <span class="content-duration">1:10:20</span>
+        <span class="content-platform">&#127911;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">OFX EPISODE 274: HYROX PHOENIX PREVIEW.</div>
+        <div class="content-meta">
+          
+          <span>2026-01-22</span>
+        </div>
+      </div>
+    </a>
+      </div>
+    </div>
+    <div class="content-section">
+      <div class="section-title">&#128196; Articles</div>
+      <div class="content-grid">
+        <a href="https://morningchalkup.com/2026/01/21/inside-the-2025-26-hyrox-season-with-rads-lauren-weeks-and-sinead-bent/" target="_blank" rel="noopener" class="content-card">
+      <div class="content-thumbnail">
+        <img src="https://morningchalkup.com/wp-content/uploads/2026/01/Banner-1-10.jpg" alt="" loading="lazy">
+        
+        <span class="content-platform">&#128196;</span>
+      </div>
+      <div class="content-info">
+        <div class="content-title">The Veteran and the Newcomer: Inside the 2025/26 HYROX Season with R.A.D’s Lauren Weeks and Sinead Bent</div>
+        <div class="content-meta">
+          
+          <span>2026-01-21</span>
+        </div>
+      </div>
+    </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="premium-gate" id="premiumGate" style="display: none;">
+    <h2>Premium Content</h2>
+    <p>Athlete Editions are exclusive to Hyrox Weekly Premium members.</p>
+    <a href="/premium" class="btn-primary">Get Premium Access</a>
+  </div>
+</main>
+
+<footer class="footer">
+  <p>
+    <a href="/">Home</a>
+    <a href="/archive">Archive</a>
+    <a href="mailto:team@hyroxweekly.com">Contact</a>
+  </p>
+  <p style="margin-top: 16px;">&copy; 2025 Hyrox Weekly. Not affiliated with HYROX GmbH.</p>
+</footer>
+
+<script>
+const SUPABASE_URL = 'https://ksqrakczmecdbzxwsvea.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtzcXJha2N6bWVjZGJ6eHdzdmVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgwMjYxMTMsImV4cCI6MjA4MzYwMjExM30.sotuDt98HLIaDvkINuT-2mC8DPgpDTB6luu_xKCxe64';
+
+async function checkAccess() {
+  // Skip gate for local preview or ?preview=true
+  if (window.location.protocol === 'file:' || new URLSearchParams(window.location.search).has('preview')) return;
+  try {
+    const response = await fetch('/api/check-premium', { credentials: 'include' });
+    const data = await response.json();
+    if (!data.isPremium) {
+      document.getElementById('editionContent').style.filter = 'blur(8px)';
+      document.getElementById('editionContent').style.pointerEvents = 'none';
+      document.getElementById('editionContent').style.userSelect = 'none';
+      document.getElementById('premiumGate').style.display = 'block';
+    }
+  } catch (error) {
+    document.getElementById('editionContent').style.filter = 'blur(8px)';
+    document.getElementById('editionContent').style.pointerEvents = 'none';
+    document.getElementById('editionContent').style.userSelect = 'none';
+    document.getElementById('premiumGate').style.display = 'block';
+  }
+}
+checkAccess();
+</script>
+
+</body>
+</html>

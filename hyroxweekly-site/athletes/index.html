@@ -311,15 +311,15 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; background: #1a1a1a;
   <!-- Filters -->
   <div class="filters">
     <button class="filter-btn active" onclick="filterAthletes('all')">All</button>
-    <button class="filter-btn" onclick="filterAthletes('male')">Men</button>
-    <button class="filter-btn" onclick="filterAthletes('female')">Women</button>
+    <button class="filter-btn" onclick="filterAthletes('M')">Men</button>
+    <button class="filter-btn" onclick="filterAthletes('F')">Women</button>
   </div>
 
   <!-- Content (blurred for non-premium) -->
   <div id="athleteContent">
 
     <!-- Elite 15 Men -->
-    <div class="athlete-section" data-gender="male">
+    <div class="athlete-section" data-gender="M">
       <div class="section-title">Elite 15 Men</div>
       <div class="athlete-grid" id="eliteMenGrid">
         <!-- Athletes loaded dynamically -->
@@ -327,7 +327,7 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; background: #1a1a1a;
     </div>
 
     <!-- Elite 15 Women -->
-    <div class="athlete-section" data-gender="female">
+    <div class="athlete-section" data-gender="F">
       <div class="section-title">Elite 15 Women</div>
       <div class="athlete-grid" id="eliteWomenGrid">
         <!-- Athletes loaded dynamically -->
@@ -362,10 +362,20 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 let isPremium = false;
 let athletes = { male: [], female: [] };
 
+// Athletes with full Athlete Edition pages
+const EDITION_SLUGS = new Set([
+  'alex-roncevic', 'hunter-mcintyre', 'cole-learn', 'jake-dearden', 'charlie-botterill',
+  'lauren-weeks', 'meg-jacoby', 'vivian-tafuto', 'joanna-wietrzyk', 'sinead-bent'
+]);
+
 function renderAthleteCard(athlete) {
   const imageHtml = athlete.profile_image_url
     ? `<img src="${athlete.profile_image_url}" alt="${athlete.name}">`
     : '&#129336;';
+
+  const hasEdition = EDITION_SLUGS.has(athlete.slug);
+  const statusClass = hasEdition ? 'published' : 'coming-soon';
+  const statusText = hasEdition ? 'Athlete Edition' : 'Coming Soon';
 
   return `
     <a href="/athletes/${athlete.slug}" class="athlete-card">
@@ -373,10 +383,10 @@ function renderAthleteCard(athlete) {
       <div class="athlete-info">
         <div class="athlete-name">${athlete.name}</div>
         <div class="athlete-meta">
-          <span class="athlete-country">${athlete.country}</span>
+          <span class="athlete-country">${athlete.country || ''}</span>
           ${athlete.instagram_handle ? `<span class="athlete-handle">@${athlete.instagram_handle}</span>` : ''}
         </div>
-        <span class="athlete-status coming-soon">View Profile</span>
+        <span class="athlete-status ${statusClass}">${statusText}</span>
       </div>
     </a>
   `;
@@ -412,8 +422,15 @@ async function fetchAthletes() {
     );
     const data = await response.json();
 
-    athletes.male = data.filter(a => a.gender === 'male');
-    athletes.female = data.filter(a => a.gender === 'female');
+    // Sort: athletes with editions first, then alphabetically
+    const sortFn = (a, b) => {
+      const aEdition = EDITION_SLUGS.has(a.slug) ? 0 : 1;
+      const bEdition = EDITION_SLUGS.has(b.slug) ? 0 : 1;
+      if (aEdition !== bEdition) return aEdition - bEdition;
+      return a.name.localeCompare(b.name);
+    };
+    athletes.male = data.filter(a => a.gender === 'M').sort(sortFn);
+    athletes.female = data.filter(a => a.gender === 'F').sort(sortFn);
 
     renderAthletes();
   } catch (error) {
