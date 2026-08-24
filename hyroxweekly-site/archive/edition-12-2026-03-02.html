@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HYROX WEEKLY - March 2-8, 2026</title>
+<meta name="description" content="Welcome! This week we've curated 10 videos, 10 podcasts, 7 articles of the best Hyrox content.">
+
+<!-- Open Graph / Facebook -->
+<meta property="og:type" content="article">
+<meta property="og:title" content="HYROX WEEKLY - March 2-8, 2026">
+<meta property="og:description" content="Welcome! This week we've curated 10 videos, 10 podcasts, 7 articles of the best Hyrox content.">
+<meta property="og:url" content="https://hyroxweekly.com/archive/edition-3">
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="HYROX WEEKLY - March 2-8, 2026">
+<meta name="twitter:description" content="Welcome! This week we've curated 10 videos, 10 podcasts, 7 articles of the best Hyrox content.">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; background: #f5f5f5; }
+.page-wrapper { max-width: 800px; margin: 0 auto; padding: 20px; }
+.nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; margin-bottom: 20px; }
+.nav-brand { font-weight: 800; font-size: 18px; color: #1a1a1a; text-decoration: none; letter-spacing: 2px; }
+.nav-links a { color: #666; text-decoration: none; margin-left: 20px; font-size: 14px; }
+.nav-links a:hover { color: #CC5500; }
+.newsletter-container { background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+.header { background: #1a1a1a; padding: 48px 32px; text-align: center; }
+.header h1 { color: #fff; font-size: 36px; font-weight: 800; letter-spacing: 6px; margin-bottom: 8px; }
+.header .tagline { color: rgba(255,255,255,0.5); font-size: 13px; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; }
+.header .edition-date { color: #CC5500; font-size: 12px; margin-top: 16px; font-weight: 600; letter-spacing: 1px; }
+.intro { padding: 32px; border-bottom: 1px solid #eee; }
+.intro p { font-size: 16px; color: #444; line-height: 1.7; }
+.section { padding: 32px; border-bottom: 1px solid #eee; }
+.section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 3px; color: #1a1a1a; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid #1a1a1a; }
+.section-podcast { background: #fafafa; }
+.content-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+.content-item { margin-bottom: 0; }
+.content-thumbnail { width: 100%; height: 140px; border-radius: 4px; overflow: hidden; margin-bottom: 12px; background: #f0f0f0; }
+.content-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+.content-platform { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #CC5500; margin-bottom: 6px; }
+.content-title { font-size: 15px; font-weight: 700; color: #1a1a1a; margin-bottom: 6px; line-height: 1.3; }
+.content-title a { color: #1a1a1a; text-decoration: none; }
+.content-title a:hover { color: #CC5500; }
+.content-creator { font-size: 11px; color: #999; font-weight: 500; margin-bottom: 8px; }
+.content-preview { font-size: 13px; color: #555; line-height: 1.5; margin-bottom: 8px; }
+.content-link { display: inline-block; font-size: 11px; font-weight: 700; color: #CC5500; text-decoration: none; text-transform: uppercase; letter-spacing: 1px; }
+.content-link:hover { text-decoration: underline; }
+.podcast-links { display: flex; gap: 8px; margin-top: 10px; }
+.podcast-link { font-size: 10px; font-weight: 700; color: #1a1a1a; text-decoration: none; padding: 6px 12px; border: 2px solid #1a1a1a; text-transform: uppercase; letter-spacing: 1px; }
+.podcast-link:hover { background: #1a1a1a; color: #fff; }
+.reddit-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.reddit-item { padding: 12px; background: #fafafa; border-left: 2px solid #1a1a1a; }
+.reddit-meta { font-size: 9px; color: #999; margin-bottom: 4px; font-weight: 500; text-transform: uppercase; }
+.reddit-title { font-size: 12px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; line-height: 1.25; }
+.reddit-title a { color: #1a1a1a; text-decoration: none; }
+.reddit-title a:hover { color: #CC5500; }
+.reddit-stats { font-size: 10px; color: #666; }
+.cta-section { padding: 32px; text-align: center; background: #1a1a1a; }
+.cta-section h3 { color: #fff; font-size: 20px; font-weight: 700; letter-spacing: 1px; margin-bottom: 6px; }
+.cta-section p { color: rgba(255,255,255,0.5); font-size: 13px; margin-bottom: 16px; }
+.cta-button { display: inline-block; padding: 12px 32px; background: #CC5500; color: #fff; text-decoration: none; font-weight: 700; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
+.cta-button:hover { background: #b34a00; }
+.footer { padding: 32px; text-align: center; background: #1a1a1a; }
+.footer p { color: rgba(255,255,255,0.4); font-size: 12px; margin-bottom: 8px; }
+.footer a { color: rgba(255,255,255,0.6); text-decoration: none; }
+.footer a:hover { color: #CC5500; }
+.subscribe-box { background: #fff; border-radius: 8px; padding: 32px; margin-top: 30px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; }
+.subscribe-box h3 { font-size: 20px; margin-bottom: 10px; }
+.subscribe-box p { color: #666; margin-bottom: 20px; }
+.archive-nav { display: flex; justify-content: space-between; margin-top: 30px; padding: 20px 0; border-top: 1px solid #eee; }
+.archive-nav a { color: #CC5500; text-decoration: none; font-weight: 600; }
+.archive-nav a:hover { text-decoration: underline; }
+@media (max-width: 600px) {
+  .content-grid { grid-template-columns: 1fr; }
+  .reddit-grid { grid-template-columns: 1fr; }
+  .header h1 { font-size: 28px; letter-spacing: 4px; }
+  .nav { flex-direction: column; gap: 10px; }
+  .subscribe-box { padding: 20px 10px; margin-left: -10px; margin-right: -10px; border-radius: 0; }
+}
+</style>
+</head>
+<body>
+
+<div class="page-wrapper">
+
+<!-- Navigation -->
+<nav class="nav">
+<a href="/" class="nav-brand">HYROX WEEKLY</a>
+<div class="nav-links">
+<a href="/archive">All Issues</a>
+<a href="/#subscribe">Subscribe</a>
+</div>
+</nav>
+
+<!-- Newsletter Content -->
+<article class="newsletter-container">
+
+<div class="header">
+<h1>HYROX WEEKLY</h1>
+<div class="tagline">Everything Hyrox. Every Week.</div>
+<div class="edition-date">March 2-8, 2026</div>
+</div>
+
+<div class="intro"><p>Welcome! This week we've curated 10 videos, 10 podcasts, 7 articles of the best Hyrox content.</p></div>
+
+
+<div class="section">
+<h2 class="section-title">Worth Watching</h2>
+<div class="content-grid">
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.youtube.com/watch?v=ezar03PI5fE"><img src="https://i.ytimg.com/vi/ezar03PI5fE/hqdefault.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">YouTube</div>
+<h3 class="content-title"><a href="https://www.youtube.com/watch?v=ezar03PI5fE">ELITE WOMEN - RACE HIGHLIGHTS | F45 HYROX AMERICAS CHAMPIONSHIPS</a></h3>
+<div class="content-creator">HYROX: The World Series of Fitness Racing • 25:30</div>
+<p class="content-preview">Watch the women's elite field navigate F45's demanding course design and execution under pressure. See how the sport's top competitors handle race-day variables and technical transitions.</p>
+<a href="https://www.youtube.com/watch?v=ezar03PI5fE" class="content-link">Watch →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.youtube.com/watch?v=860c2l35owY"><img src="https://i.ytimg.com/vi/860c2l35owY/hqdefault.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">YouTube</div>
+<h3 class="content-title"><a href="https://www.youtube.com/watch?v=860c2l35owY">ELITE MEN - RACE HIGHLIGHTS | F45 HYROX AMERICAS CHAMPIONSHIPS</a></h3>
+<div class="content-creator">HYROX: The World Series of Fitness Racing • 23:26</div>
+<p class="content-preview">Watch the continent's best male racers execute their strategies across the F45 course in Washington, D.C., where split-second decisions determine qualification and podium outcomes.</p>
+<a href="https://www.youtube.com/watch?v=860c2l35owY" class="content-link">Watch →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.youtube.com/watch?v=ZWOkOBiP4lU"><img src="https://i.ytimg.com/vi/ZWOkOBiP4lU/hqdefault.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">YouTube</div>
+<h3 class="content-title"><a href="https://www.youtube.com/watch?v=ZWOkOBiP4lU">Boston Travel Vlog┃Puma HQ, VO2 Max Test, seeing SNOW &amp; more!</a></h3>
+<div class="content-creator">Joanna Wietrzyk • 24:32</div>
+<p class="content-preview">Joanna Wietrzyk documents her Boston adventure, including a behind-the-scenes Puma HQ visit and VO2 max testing insights relevant to fitness training.</p>
+<a href="https://www.youtube.com/watch?v=ZWOkOBiP4lU" class="content-link">Watch →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.youtube.com/watch?v=TVgUFyttwAY"><img src="https://i.ytimg.com/vi/TVgUFyttwAY/hqdefault.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">YouTube</div>
+<h3 class="content-title"><a href="https://www.youtube.com/watch?v=TVgUFyttwAY">Pro Doubles in Taipei | We Qualified for APAC Elite 15 Race</a></h3>
+<div class="content-creator">James Kelly & Georgie Vesely • 18:59</div>
+<p class="content-preview">James Kelly and Georgie Vesely punched their ticket to the APAC Elite 15 Doubles Race in April with a qualifying effort in Taipei. Watch how they secured their spot.</p>
+<a href="https://www.youtube.com/watch?v=TVgUFyttwAY" class="content-link">Watch →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.youtube.com/watch?v=EgRhBAslWyQ"><img src="https://i.ytimg.com/vi/EgRhBAslWyQ/hqdefault.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">YouTube</div>
+<h3 class="content-title"><a href="https://www.youtube.com/watch?v=EgRhBAslWyQ">Mission accomplished...We get to race in the Regional Doubles Championship.</a></h3>
+<div class="content-creator">Jonathon Wynn • 21:14</div>
+<p class="content-preview">Jonathon Wynn and Beau traveled to Poland with one objective: punch their ticket to the Regional Doubles Championship. See how they executed their qualifying strategy.</p>
+<a href="https://www.youtube.com/watch?v=EgRhBAslWyQ" class="content-link">Watch →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.youtube.com/watch?v=KpOUYWmChps"><img src="https://i.ytimg.com/vi/KpOUYWmChps/hqdefault.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">YouTube</div>
+<h3 class="content-title"><a href="https://www.youtube.com/watch?v=KpOUYWmChps">If Zone 2 Feels &quot;Easy&quot; - You Might Not Be Fit Enough</a></h3>
+<div class="content-creator">wod-science • 20:57</div>
+<p class="content-preview">WOD-Science challenges a widespread assumption: true aerobic fitness demands feeling uncomfortable in Zone 2. Discover why easy training often signals undertrained capacity.</p>
+<a href="https://www.youtube.com/watch?v=KpOUYWmChps" class="content-link">Watch →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.youtube.com/watch?v=yO26GAddv8s"><img src="https://i.ytimg.com/vi/yO26GAddv8s/hqdefault.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">YouTube</div>
+<h3 class="content-title"><a href="https://www.youtube.com/watch?v=yO26GAddv8s">Training for Hyrox Doubles with Jake Williamson </a></h3>
+<div class="content-creator">Jake Dearden • 25:56</div>
+<p class="content-preview">Jake Williamson and Jake Dearden unpack the technical and tactical demands of doubles competition, offering insights into partner synchronization and pacing strategies that elevate two-person performance.</p>
+<a href="https://www.youtube.com/watch?v=yO26GAddv8s" class="content-link">Watch →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.youtube.com/watch?v=tPr379fxee4"><img src="https://i.ytimg.com/vi/tPr379fxee4/hqdefault.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">YouTube</div>
+<h3 class="content-title"><a href="https://www.youtube.com/watch?v=tPr379fxee4">HYROX Phoenix Recap - Qualified for the HYROX World Championships</a></h3>
+<div class="content-creator">Eric Hinman • 20:17</div>
+<p class="content-preview">Eric Hinman breaks down his Phoenix race performance and qualification for the World Championships, offering insights into the tactics and training adjustments that secured his spot.</p>
+<a href="https://www.youtube.com/watch?v=tPr379fxee4" class="content-link">Watch →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.youtube.com/watch?v=qTpDQabJYI4"><img src="https://i.ytimg.com/vi/qTpDQabJYI4/hqdefault.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">YouTube</div>
+<h3 class="content-title"><a href="https://www.youtube.com/watch?v=qTpDQabJYI4">A GLOBAL FAMILY | HYROX SERIES - EP 05</a></h3>
+<div class="content-creator">HYROX: The World Series of Fitness Racing • 10:51</div>
+<p class="content-preview">Discover how HYROX athletes from around the globe unite through the series, showcasing the sport's expanding reach and diverse community competing at the highest level.</p>
+<a href="https://www.youtube.com/watch?v=qTpDQabJYI4" class="content-link">Watch →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.youtube.com/watch?v=imcxogOf5pA"><img src="https://i.ytimg.com/vi/imcxogOf5pA/hqdefault.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">YouTube</div>
+<h3 class="content-title"><a href="https://www.youtube.com/watch?v=imcxogOf5pA">Hyrox Las Vegas Mixed Doubles with Lauren Weeks</a></h3>
+<div class="content-creator">Rich Ryan • 14:21</div>
+<p class="content-preview">Rich Ryan breaks down the mixed doubles playbook with Lauren Weeks, dissecting partnership dynamics and execution strategies that powered their Las Vegas showing.</p>
+<a href="https://www.youtube.com/watch?v=imcxogOf5pA" class="content-link">Watch →</a>
+</div>
+
+</div>
+</div>
+
+
+
+<div class="section section-podcast">
+<h2 class="section-title">Worth a Listen</h2>
+<div class="content-grid">
+
+<div class="content-item">
+<div class="content-thumbnail"><img src="https://i.scdn.co/image/ab6765630000ba8a434a56a24397bea44a4bd2c7" alt="" loading="lazy"></div>
+<div class="content-platform">Podcast</div>
+<h3 class="content-title">Hyrox Racing Strategy</h3>
+<div class="content-creator">Hyrox Coaching Podcast • 1:24:32</div>
+<p class="content-preview">Master the art of race execution with proven pacing tactics and technical breakdowns of critical stations. Learn how elite athletes manage lactate and sustain performance from start to finish.</p>
+<div class="podcast-links">
+<a href="https://open.spotify.com/episode/0X7iS4SvdUNfLkiD40ZFWi" class="podcast-link">Spotify</a>
+<a href="https://podcasts.apple.com/us/podcast/hyrox-racing-strategy/id1875201523?i=1000753490088&uo=4" class="podcast-link">Apple</a>
+</div>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><img src="https://i.scdn.co/image/ab6765630000ba8a1598b519a8a1a729dd5b5a19" alt="" loading="lazy"></div>
+<div class="content-platform">Podcast</div>
+<h3 class="content-title">HYROX North American Championship Draft</h3>
+<div class="content-creator">HYROX Rundown presented by Race Brain • 1:18:05</div>
+<p class="content-preview">The crew drafts the North American Championship field, debating pro cards, roll-down scenarios, and unexpected breakout performances. Expert picks, sleeper selections, and roster construction strategy included.</p>
+<div class="podcast-links">
+<a href="https://open.spotify.com/episode/2pHNLbiWv81kHo0nBQTW1F" class="podcast-link">Spotify</a>
+<a href="https://podcasts.apple.com/us/podcast/hyrox-north-american-championship-draft/id1788209473?i=1000752411063&uo=4" class="podcast-link">Apple</a>
+</div>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><img src="https://i.scdn.co/image/ab6765630000ba8adc84e7790aa31309688aa180" alt="" loading="lazy"></div>
+<div class="content-platform">Podcast</div>
+<h3 class="content-title">Vivian Tafuto on HYROX: Elite Podiums, Doubles World Records, and Balancing a Full-Time Job</h3>
+<div class="content-creator">Rox Lyfe - The HYROX Podcast • 57:37</div>
+<p class="content-preview">Vivian Tafuto breaks down her formula for consistent Elite podiums while maintaining a demanding full-time career, plus reveals how she and Lauren Weeks rewrote the Pro Doubles record book twice over.</p>
+<div class="podcast-links">
+<a href="https://open.spotify.com/episode/6BKMQDZMbo8svefvQfkEAY" class="podcast-link">Spotify</a>
+<a href="https://podcasts.apple.com/us/podcast/vivian-tafuto-on-hyrox-elite-podiums-doubles-world/id1648250425?i=1000753166513&uo=4" class="podcast-link">Apple</a>
+</div>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><img src="https://i.scdn.co/image/ab6765630000ba8a823e45639fbcca448d8fed03" alt="" loading="lazy"></div>
+<div class="content-platform">Podcast</div>
+<h3 class="content-title">HCP #89 - JK race review, HYROX Washington DC preview, CrossFit Open 2026</h3>
+<div class="content-creator">Hybrid Coaching Podcast - HYROX Coaching • 1:10:17</div>
+<p class="content-preview">JK breaks down her Taipei doubles performance across Pro and Open divisions while Anthony previews the Washington DC Regional season opener and dissects early CrossFit Open trends.</p>
+<div class="podcast-links">
+<a href="https://open.spotify.com/episode/4PB2XAhl5g1CYPnipBcWDY" class="podcast-link">Spotify</a>
+<a href="https://podcasters.spotify.com/pod/show/hybrid-coaching-podcast/episodes/HCP-89---JK-race-review--HYROX-Washington-DC-preview--CrossFit-Open-2026-e3fvicv" class="podcast-link">Apple</a>
+</div>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><img src="https://i.scdn.co/image/ab6765630000ba8ae8b75a682a54818978560b99" alt="" loading="lazy"></div>
+<div class="content-platform">Podcast</div>
+<h3 class="content-title">HYROX Data and Pacing with Kaʻeo from Stryd. Plus an Alaskan Surprise with Chad Trammell and Lars Arneson</h3>
+<div class="content-creator">Hybrid Fitness Media • 1:22:40</div>
+<p class="content-preview">Harness running power metrics to sharpen your pacing strategy. Plus, hear how two Alaskan pros made their mark on the Phoenix course in their debut season.</p>
+<div class="podcast-links">
+<a href="https://open.spotify.com/episode/5j6esmiBrHdH3Qm6Hd2B17" class="podcast-link">Spotify</a>
+<a href="https://podcasts.apple.com/us/podcast/hyrox-data-and-pacing-with-ka%CA%BBeo-from-stryd-plus/id1685720261?i=1000753169367&uo=4" class="podcast-link">Apple</a>
+</div>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><img src="https://i.scdn.co/image/ab6765630000ba8a4b992eebfca4c75cceb65f07" alt="" loading="lazy"></div>
+<div class="content-platform">Podcast</div>
+<h3 class="content-title">080: What 90% of Hybrid Athletes & Runners Get Wrong About Fueling w/ Liam Holmes</h3>
+<div class="content-creator">TrainHybrd Podcast - Hyrox, Hybrid Training, Running & Endurance • 57:13</div>
+<p class="content-preview">Liam Holmes exposes the nutrition blind spots sabotaging hybrid athletes' performance, from underfueling strategies to carb periodization tactics that actually work.</p>
+<div class="podcast-links">
+<a href="https://open.spotify.com/episode/6jove2vrzptJWWmm1kxgAR" class="podcast-link">Spotify</a>
+<a href="https://podcasts.apple.com/us/podcast/080-what-90-of-hybrid-athletes-runners-get-wrong/id1740661599?i=1000751864102&uo=4" class="podcast-link">Apple</a>
+</div>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><img src="https://i.scdn.co/image/ab6765630000ba8a67db4e48d3add8b093e1a72f" alt="" loading="lazy"></div>
+<div class="content-platform">Podcast</div>
+<h3 class="content-title">Evidence based training in HYROX – Max Swindells</h3>
+<div class="content-creator">Fitness Racing Podcast • 1:03:56</div>
+<p class="content-preview">Max Swindells dissects the science behind smart training, examining lactate threshold and VO2 max protocols while revealing exactly how to assess athletes before their first 12-week cycle.</p>
+<div class="podcast-links">
+<a href="https://open.spotify.com/episode/4IgM6VvNoqp1tmTDjbG0Lc" class="podcast-link">Spotify</a>
+<a href="https://podcasts.apple.com/us/podcast/evidence-based-training-in-hyrox-max-swindells/id1606012623?i=1000752994968&uo=4" class="podcast-link">Apple</a>
+</div>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><img src="https://i.scdn.co/image/ab6765630000ba8a89690dadcbde29c7b8cf6c7f" alt="" loading="lazy"></div>
+<div class="content-platform">Podcast</div>
+<h3 class="content-title">HYROX DC Preview. XENOM First Thoughts. Rancher Strong AKA HayRox Recap</h3>
+<div class="content-creator">Hybrid Fitness Media • 1:39:54</div>
+<p class="content-preview">Inside looks at HYROX DC's competitive field, early impressions of XENOM's fitness decathlon format, and a technical breakdown of Texas's Rancher Strong course reveal what separates contenders from pretenders.</p>
+<div class="podcast-links">
+<a href="https://open.spotify.com/episode/2oNTsVJZQUsyQ3yXLaBt1z" class="podcast-link">Spotify</a>
+<a href="https://podcasts.apple.com/us/podcast/hyrox-dc-preview-xenom-first-thoughts-rancher-strong/id1685720261?i=1000752880075&uo=4" class="podcast-link">Apple</a>
+</div>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><img src="https://i.scdn.co/image/ab6765630000ba8a148fe73ecf2e12373494e247" alt="" loading="lazy"></div>
+<div class="content-platform">Podcast</div>
+<h3 class="content-title">Training Too Hard Is Killing Your HYROX Performance (Here’s What To Do Instead)</h3>
+<div class="content-creator">HYROX HEROES the PODCAST • 44:11</div>
+<p class="content-preview">Discover why your intensity obsession might be sabotaging race day performance. Learn the aerobic foundation strategies that separate sustained progress from premature burnout.</p>
+<div class="podcast-links">
+<a href="https://open.spotify.com/episode/4JbXDD5IsMNFrfqwjAD4tL" class="podcast-link">Spotify</a>
+<a href="https://podcasts.apple.com/us/podcast/training-too-hard-is-killing-your-hyrox-performance/id1768434617?i=1000752818911&uo=4" class="podcast-link">Apple</a>
+</div>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><img src="https://i.scdn.co/image/ab6765630000ba8a5d108c32af1f642a357347bd" alt="" loading="lazy"></div>
+<div class="content-platform">Podcast</div>
+<h3 class="content-title">MacTuffX interview; Crossfit shenanigans; training update & Hyrox (Ep25)</h3>
+<div class="content-creator">Hybrid Fitness Report • 1:01:55</div>
+<p class="content-preview">Paul and Jude assess their readiness ahead of Hyrox Glasgow while breaking down MacTuffX's ambitious 2026 UK expansion and previewing the DC Regional showdown.</p>
+<div class="podcast-links">
+<a href="https://open.spotify.com/episode/3xsycujXge0HAc0IdxQv6R" class="podcast-link">Spotify</a>
+<a href="https://podcasts.apple.com/us/podcast/mactuffx-interview-crossfit-shenanigans-training-update/id1832500331?i=1000753836331&uo=4" class="podcast-link">Apple</a>
+</div>
+</div>
+
+</div>
+</div>
+
+
+
+<div class="section">
+<h2 class="section-title">Worth Reading</h2>
+<div class="content-grid">
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://morningchalkup.com/2026/03/04/inside-adidas-annual-primer-event/"><img src="https://morningchalkup.com/wp-content/uploads/2026/03/Banner-2-6.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">Article</div>
+<h3 class="content-title"><a href="https://morningchalkup.com/2026/03/04/inside-adidas-annual-primer-event/">Inside Adidas’s Annual “Primer” Event</a></h3>
+<div class="content-creator">Morning Chalk Up</div>
+<p class="content-preview">Adidas doubled down on hybrid athlete development at its annual Primer summit in Germany, tripling last year's roster and signaling major momentum in the fitness space.</p>
+<a href="https://morningchalkup.com/2026/03/04/inside-adidas-annual-primer-event/" class="content-link">Read →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://morningchalkup.com/2026/03/04/inside-pumas-long-term-hyrox-vision/"><img src="https://morningchalkup.com/wp-content/uploads/2026/03/Puma-Interview.jpg" alt="" loading="lazy"></a></div>
+<div class="content-platform">Article</div>
+<h3 class="content-title"><a href="https://morningchalkup.com/2026/03/04/inside-pumas-long-term-hyrox-vision/">“We’re Just Seeing the Tip of the Iceberg:” Inside Puma’s Long-Term HYROX Vision</a></h3>
+<div class="content-creator">Morning Chalk Up</div>
+<p class="content-preview">Puma's multi-year investment signals serious corporate backing for HYROX's growth trajectory, positioning the brand partnership as a watershed moment for mainstream fitness legitimacy.</p>
+<a href="https://morningchalkup.com/2026/03/04/inside-pumas-long-term-hyrox-vision/" class="content-link">Read →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.redbull.com/au-en/hyrox-results-australia-new-zealand"><img src="https://img.redbull.com/images/c_crop,w_3840,h_1920,x_0,y_48/c_auto,w_1200,h_630/f_auto,q_auto/redbullcom/2026/1/9/oszhi2sjoqckyvikrbuq/james-kelly-running" alt="" loading="lazy"></a></div>
+<div class="content-platform">Article</div>
+<h3 class="content-title"><a href="https://www.redbull.com/au-en/hyrox-results-australia-new-zealand">HYROX Results 2025/26 - Australia and New Zealand - Red Bull</a></h3>
+<div class="content-creator">Red Bull</div>
+<p class="content-preview">Dive into the Oceania standings as Red Bull tracks the 2025/26 season's emerging contenders across Australia and New Zealand, revealing regional storylines and qualification trajectories.</p>
+<a href="https://www.redbull.com/au-en/hyrox-results-australia-new-zealand" class="content-link">Read →</a>
+</div>
+
+<div class="content-item">
+
+<div class="content-platform">Article</div>
+<h3 class="content-title"><a href="https://www.redbull.com/id-id/hybrid-training-hacks-running-strength">Endurance training hacks: How hybrid athletes balance running and strength - Red Bull</a></h3>
+<div class="content-creator">Red Bull</div>
+<p class="content-preview">Red Bull reveals how top hybrid athletes construct training blocks that develop aerobic capacity without sacrificing strength gains, offering practical periodization strategies for balancing competing demands.</p>
+<a href="https://www.redbull.com/id-id/hybrid-training-hacks-running-strength" class="content-link">Read →</a>
+</div>
+
+<div class="content-item">
+
+<div class="content-platform">Article</div>
+<h3 class="content-title"><a href="https://www.redbull.com/mk-mk/hyrox-elite-15-pro-doubles-rule-change-interview">Exclusive: Tim Wenisch reacts to HYROX’s career-changing Pro Doubles rules - Red Bull</a></h3>
+<div class="content-creator">Red Bull</div>
+<p class="content-preview">Pro Doubles competition gets a strategic overhaul. Tim Wenisch weighs in on how the new ruleset reshapes partnership dynamics and competitive opportunities for elite racers.</p>
+<a href="https://www.redbull.com/mk-mk/hyrox-elite-15-pro-doubles-rule-change-interview" class="content-link">Read →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://theconversation.com/hyrox-is-booming-worldwide-heres-how-to-train-for-this-race-safely-and-effectively-275477"><img src="https://images.theconversation.com/files/721980/original/file-20260304-69-hpzafv.jpg?ixlib=rb-4.1.0&rect=0%2C663%2C7952%2C3976&q=45&auto=format&w=1356&h=668&fit=crop" alt="" loading="lazy"></a></div>
+<div class="content-platform">Article</div>
+<h3 class="content-title"><a href="https://theconversation.com/hyrox-is-booming-worldwide-heres-how-to-train-for-this-race-safely-and-effectively-275477">Hyrox is booming worldwide – here’s how to train for this race safely and effectively - The Conversation</a></h3>
+<div class="content-creator">The Conversation</div>
+<p class="content-preview">Sport scientists outline evidence-based training protocols to help racers build fitness while minimizing injury risk, breaking down the programming principles that separate sustainable progress from burnout.</p>
+<a href="https://theconversation.com/hyrox-is-booming-worldwide-heres-how-to-train-for-this-race-safely-and-effectively-275477" class="content-link">Read →</a>
+</div>
+
+<div class="content-item">
+<div class="content-thumbnail"><a href="https://www.menshealth.com/uk/fitness/cardio-exercise/a70585140/mat-fraser-hyrox-training-tips/"><img src="https://hips.hearstapps.com/hmg-prod/images/untitled-design-6-69a6da3db2463.png?crop=1.00xw:1.00xh;0,0&resize=1200:*" alt="" loading="lazy"></a></div>
+<div class="content-platform">Article</div>
+<h3 class="content-title"><a href="https://www.menshealth.com/uk/fitness/cardio-exercise/a70585140/mat-fraser-hyrox-training-tips/">Mat Fraser Reveals His 'Secret Weapon' for Hyrox Training – and His Go-To Interval Workout - Men's Health</a></h3>
+<div class="content-creator">Men's Health</div>
+<p class="content-preview">Two-time CrossFit Games champion Mat Fraser details his interval training blueprint and reveals the recovery technique that keeps him sharp during Hyrox competition blocks.</p>
+<a href="https://www.menshealth.com/uk/fitness/cardio-exercise/a70585140/mat-fraser-hyrox-training-tips/" class="content-link">Read →</a>
+</div>
+
+</div>
+</div>
+
+
+
+
+
+
+<div class="footer">
+<p><a href="https://instagram.com/hyroxweekly">Instagram</a> · <a href="https://hyroxweekly.com">Website</a> · <a href="mailto:team@hyroxweekly.com">Contact</a></p>
+<p style="margin-top:16px">© 2026 HYROX WEEKLY</p>
+</div>
+
+</article>
+
+<!-- Subscribe Box -->
+<div class="subscribe-box" id="subscribe">
+<h3>Never Miss an Edition</h3>
+<p>Get the best Hyrox content delivered to your inbox every week.</p>
+
+<a href="https://hyroxweekly.com" style="display: inline-block; padding: 14px 40px; background: #CC5500; color: #fff; text-decoration: none; font-weight: 700; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; border-radius: 4px;">Subscribe Free</a>
+
+</div>
+
+<!-- Archive Navigation -->
+<div class="archive-nav">
+<a href="/archive">← All Issues</a>
+<a href="/archive">View All Editions →</a>
+</div>
+
+</div>
+
+<script src="/assets/premium-gate.js"></script>
+</body>
+</html>
