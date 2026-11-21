@@ -4187,7 +4187,7 @@ def render_review_row(item, display_tz):
     status = effective_status(item)
     platform = item['platform']
 
-    sel_col, rej_col, body_col = st.columns([0.6, 0.6, 12], vertical_alignment="center")
+    sel_col, rej_col, body_col = st.columns([1, 1, 14], vertical_alignment="center")
     with sel_col:
         st.button("✅", key=f"rv_sel_{item['id']}", type="primary" if status == 'selected' else "secondary",
                   help="Select (click again to clear)", on_click=toggle_item_status, args=(item, 'selected'))
@@ -4210,7 +4210,7 @@ def render_review_row(item, display_tz):
         if item.get('selection_method') == 'yolo':
             meta.append("🤖")
         st.markdown(f"**[{item['title'][:90]}{'...' if len(item['title']) > 90 else ''}]({item['url']})**  \n"
-                    f"<span style='color:#9aa0a6;font-size:0.85rem'>{escape(' • '.join(meta))}</span>", unsafe_allow_html=True)
+                    f"<span class='rv-meta'>{escape(' • '.join(meta))}</span>", unsafe_allow_html=True)
         blurb = effective_blurb(item)
         if blurb:
             st.caption(blurb)
@@ -4387,6 +4387,127 @@ def render_priority_source(source, platform):
 # STREAMLIT APP
 # ============================================================================
 
+# Dashboard look: a dark "slate" palette with the brand orange as the only accent.
+# Pure CSS (no fonts or images to download, no extra elements), so it adds no render cost.
+APP_CSS = """
+:root {
+    --hw-surface: #11141b;
+    --hw-surface-2: #171b24;
+    --hw-border: rgba(255, 255, 255, 0.08);
+    --hw-text: #e8eaf0;
+    --hw-muted: #8b93a7;
+    --hw-accent: #ff6b35;
+    --hw-accent-2: #ff9a4d;
+    --hw-green: #22c55e;
+    --hw-red: #ef4444;
+}
+
+/* Typography: the system font (SF Pro on Mac), tighter headings */
+html, body, [data-testid="stApp"], button, input, textarea, select {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4 { letter-spacing: -0.02em; font-weight: 650; }
+h2 { font-size: 1.6rem; }
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.02rem; margin-top: 0.4rem; }
+[data-testid="stCaptionContainer"] { color: var(--hw-muted); }
+[data-testid="stMarkdownContainer"] a { color: #7db4fb; text-decoration: none; }
+[data-testid="stMarkdownContainer"] a:hover { text-decoration: underline; }
+
+/* Page frame */
+[data-testid="stMainBlockContainer"] { padding: 2.5rem 3rem 5rem; max-width: 1400px; }
+[data-testid="stHeader"] { background: transparent; }
+[data-testid="stAppDeployButton"] { display: none; }
+hr { border-color: var(--hw-border); opacity: 1; margin: 1.4rem 0; }
+
+/* Home page header and workflow steps */
+[data-testid="stMarkdownContainer"] p.main-header {
+    font-size: 2.2rem; font-weight: 750; letter-spacing: -0.03em; margin: 0;
+    background: linear-gradient(90deg, var(--hw-accent), var(--hw-accent-2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+[data-testid="stMarkdownContainer"] p.sub-header { color: var(--hw-muted); font-size: 1rem; margin: 0.2rem 0 1.6rem; }
+.metric-card {
+    background: var(--hw-surface); border: 1px solid var(--hw-border); border-radius: 14px;
+    padding: 1.1rem 1.2rem; text-align: left; transition: border-color 0.15s ease;
+}
+.metric-card:hover { border-color: rgba(255, 107, 53, 0.55); }
+[data-testid="stMarkdownContainer"] .metric-card h3 {
+    margin: 0 0 0.35rem; padding: 0; font-size: 0.7rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--hw-accent); font-weight: 700;
+}
+[data-testid="stMarkdownContainer"] .metric-card p { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.metric-card small { color: var(--hw-muted); }
+
+/* Sidebar navigation: pill items, orange marker on the active page */
+[data-testid="stSidebar"] { border-right: 1px solid var(--hw-border); }
+[data-testid="stSidebar"] [role="radiogroup"] { gap: 2px; }
+[data-testid="stSidebar"] [data-testid="stRadioOption"] {
+    width: 100%; padding: 0.5rem 0.8rem; border-radius: 10px; transition: background 0.12s ease;
+}
+[data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div > div:not([data-testid="stMarkdownContainer"]) { display: none; }
+[data-testid="stSidebar"] [data-testid="stRadioOption"]:hover { background: rgba(255, 255, 255, 0.05); }
+[data-testid="stSidebar"] [data-testid="stRadioOption"]:has(input:checked) {
+    background: rgba(255, 107, 53, 0.13); box-shadow: inset 3px 0 0 var(--hw-accent);
+}
+[data-testid="stSidebar"] [data-testid="stRadioOption"]:has(input:checked) p { color: #fff; font-weight: 600; }
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { font-size: 0.9rem; }
+
+/* Metric tiles */
+[data-testid="stMetric"] {
+    background: var(--hw-surface); border: 1px solid var(--hw-border); border-radius: 14px; padding: 0.85rem 1.1rem;
+}
+[data-testid="stMetricLabel"] { color: var(--hw-muted); font-size: 0.8rem; }
+[data-testid="stMetricValue"] { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+[data-testid="stSidebar"] [data-testid="stMetricValue"] { font-size: 1.5rem; }
+
+/* Buttons: quiet by default, orange gradient for primary. Review-row decisions get green / red. */
+[data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-primary"] {
+    border-radius: 10px; font-weight: 550; transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+[data-testid="stBaseButton-secondary"] { background: var(--hw-surface-2); border: 1px solid var(--hw-border); }
+[data-testid="stBaseButton-secondary"]:hover { border-color: var(--hw-accent); color: #fff; }
+[data-testid="stBaseButton-primary"] { background: linear-gradient(135deg, var(--hw-accent), var(--hw-accent-2)); border: 0; color: #fff; }
+[data-testid="stBaseButton-primary"]:hover { box-shadow: 0 4px 14px rgba(255, 107, 53, 0.35); }
+[class*="st-key-rv_sel_"] [data-testid="stBaseButton-primary"] { background: var(--hw-green); }
+[class*="st-key-rv_sel_"] [data-testid="stBaseButton-primary"]:hover { box-shadow: 0 4px 14px rgba(34, 197, 94, 0.4); }
+[class*="st-key-rv_rej_"] [data-testid="stBaseButton-primary"] { background: var(--hw-red); }
+[class*="st-key-rv_rej_"] [data-testid="stBaseButton-primary"]:hover { box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4); }
+
+/* Review rows: roomy icon buttons (dimmed until selected or hovered), hairline between rows, soft hover */
+[class*="st-key-rv_"] button { padding: 0.35rem 0; min-height: 2.3rem; font-size: 1.05rem; }
+[class*="st-key-rv_"] [data-testid="stBaseButton-secondary"] { opacity: 0.65; }
+[class*="st-key-rv_"] [data-testid="stBaseButton-secondary"]:hover { opacity: 1; }
+[data-testid="stHorizontalBlock"]:has([class*="st-key-rv_sel_"]) {
+    padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--hw-border); border-radius: 8px;
+}
+[data-testid="stHorizontalBlock"]:has([class*="st-key-rv_sel_"]):hover { background: rgba(255, 255, 255, 0.025); }
+.rv-meta { color: var(--hw-muted); font-size: 0.82rem; }
+
+/* Cards, expanders, inputs, alerts */
+[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 14px; border-color: var(--hw-border); background: var(--hw-surface); padding: 1rem 1.1rem;
+}
+[data-testid="stExpander"] { border: 1px solid var(--hw-border); border-radius: 12px; background: var(--hw-surface); }
+[data-testid="stExpander"] summary { font-weight: 600; }
+[data-baseweb="select"] > div, [data-baseweb="input"] > div, [data-baseweb="textarea"] {
+    border-radius: 10px; border-color: var(--hw-border); background-color: var(--hw-surface-2);
+}
+[data-testid="stAlert"] { border-radius: 12px; }
+[data-testid="stMarkdownContainer"] code { background: var(--hw-surface-2); color: var(--hw-text); border-radius: 6px; padding: 0.1rem 0.4rem; }
+[data-testid="stImage"] img { border-radius: 10px; }
+.stTabs [data-baseweb="tab-list"] { gap: 6px; border-bottom: 1px solid var(--hw-border); }
+.stTabs [data-baseweb="tab"] { border-radius: 10px 10px 0 0; padding: 8px 16px; }
+
+/* Status badges */
+.status-badge { display: inline-block; padding: 3px 11px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; }
+.status-discovered { background: rgba(96, 165, 250, 0.14); color: #7db4fb; }
+.status-selected { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+.status-rejected { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+"""
+
+
 def main():
     st.set_page_config(
         page_title="Hyrox Weekly - Dashboard",
@@ -4395,111 +4516,8 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    # Custom CSS - Modern styling
-    st.markdown("""
-    <style>
-    /* Headers */
-    .main-header {font-size: 2.5rem; font-weight: 800; color: #ff6b35; margin-bottom: 0;}
-    .sub-header {color: #888; margin-bottom: 2rem;}
-
-    /* Cards and containers */
-    .metric-card {background: #1a1d24; padding: 1rem; border-radius: 12px; text-align: center; border: 1px solid #2d3139;}
-    .step-header {background: linear-gradient(135deg, #ff6b35, #f7931e); color: white; padding: 1rem; border-radius: 12px; margin-bottom: 1rem;}
-
-    /* Buttons - modern rounded style */
-    .stButton > button {
-        border-radius: 8px;
-        padding: 0.5rem 1rem;
-        font-weight: 500;
-        transition: all 0.2s ease;
-        border: 1px solid transparent;
-    }
-    .stButton > button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
-    }
-    .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #ff6b35, #f7931e);
-    }
-
-    /* Expanders - cleaner look */
-    .streamlit-expanderHeader {
-        font-weight: 600;
-        font-size: 0.95rem;
-        border-radius: 8px;
-    }
-
-    /* Selectboxes and inputs */
-    .stSelectbox > div > div {
-        border-radius: 8px;
-    }
-    .stTextInput > div > div > input {
-        border-radius: 8px;
-    }
-    .stTextArea > div > div > textarea {
-        border-radius: 8px;
-    }
-
-    /* Tabs - modern style */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px;
-        padding: 8px 16px;
-    }
-
-    /* Metrics - enhanced */
-    [data-testid="stMetricValue"] {
-        font-size: 2rem;
-        font-weight: 700;
-    }
-
-    /* Sidebar styling */
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0e1117 0%, #1a1d24 100%);
-    }
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
-        font-size: 0.9rem;
-    }
-
-    /* Container borders - card effect */
-    [data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 12px;
-        border-color: #2d3139;
-        background: #1a1d24;
-        padding: 1rem;
-    }
-
-    /* Image styling */
-    [data-testid="stImage"] img {
-        border-radius: 8px;
-    }
-
-    /* Success/warning/error messages */
-    .stSuccess, .stWarning, .stError, .stInfo {
-        border-radius: 8px;
-    }
-
-    /* Dividers - subtle */
-    hr {
-        border-color: #2d3139;
-        opacity: 0.5;
-    }
-
-    /* Status badges */
-    .status-badge {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-    .status-discovered { background: #1e3a5f; color: #60a5fa; }
-    .status-selected { background: #1a4d3e; color: #34d399; }
-    .status-rejected { background: #4d1f2a; color: #f87171; }
-    </style>
-    """, unsafe_allow_html=True)
+    # Custom CSS (see APP_CSS above)
+    st.markdown("<style>" + APP_CSS + "</style>", unsafe_allow_html=True)
     
     # ========================================================================
     # ONE-TIME DATABASE INITIALIZATION (only runs once per session)

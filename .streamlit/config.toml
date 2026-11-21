@@ -1,10 +1,17 @@
 [theme]
-# Hyrox Weekly - Modern Dark Theme
+# Hyrox Weekly - dark slate theme with the brand orange as the accent
+base = "dark"
 primaryColor = "#ff6b35"
-backgroundColor = "#0e1117"
-secondaryBackgroundColor = "#1a1d24"
-textColor = "#fafafa"
+backgroundColor = "#0b0d12"
+secondaryBackgroundColor = "#11141b"
+textColor = "#e8eaf0"
+borderColor = "#232733"
+baseRadius = "large"
 font = "sans serif"
+
+[theme.sidebar]
+backgroundColor = "#0f1218"
+secondaryBackgroundColor = "#171b24"
 
 [server]
 headless = true
