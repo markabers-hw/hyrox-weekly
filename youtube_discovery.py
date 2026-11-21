@@ -100,18 +100,84 @@ class YouTubeDiscovery:
             print(f"   ❌ YouTube API error: {e}")
             return []
     
+    def list_channel_uploads(self, channel_id, max_results=10, max_pages=20):
+        """
+        List a channel's uploads from the selected week, newest first.
+
+        Reads the channel's uploads playlist, which costs 1 quota unit per page of
+        50 videos, versus 100 units for a search.list call. A channel's uploads
+        playlist ID is its channel ID with the leading 'UC' swapped for 'UU'.
+        Results are shaped like search.list items so the rest of the pipeline is unchanged.
+
+        Args:
+            channel_id: YouTube channel ID (starts with 'UC')
+            max_results: Maximum number of videos to return
+            max_pages: Safety cap on playlist pages to read
+        """
+        uploads_playlist_id = 'UU' + channel_id[2:]
+        videos = []
+        page_token = None
+
+        for _ in range(max_pages):
+            response = self.youtube.playlistItems().list(
+                part='snippet,contentDetails',
+                playlistId=uploads_playlist_id,
+                maxResults=50,
+                pageToken=page_token,
+            ).execute()
+
+            oldest_on_page = None
+            for item in response.get('items', []):
+                snippet = item['snippet']
+                published_str = item.get('contentDetails', {}).get('videoPublishedAt')
+                thumbnails = snippet.get('thumbnails')
+                if not published_str or not thumbnails:
+                    continue  # private or deleted video
+
+                published = date_parser.parse(published_str).replace(tzinfo=None)
+                if oldest_on_page is None or published < oldest_on_page:
+                    oldest_on_page = published
+
+                if WEEK_START <= published < WEEK_END:
+                    videos.append({
+                        'id': {'videoId': item['contentDetails']['videoId']},
+                        'snippet': {
+                            'channelId': channel_id,
+                            'title': snippet['title'],
+                            'description': snippet.get('description', ''),
+                            'publishedAt': published_str,
+                            'thumbnails': {
+                                'high': thumbnails.get('high') or thumbnails.get('medium') or thumbnails['default']
+                            },
+                        },
+                    })
+
+            page_token = response.get('nextPageToken')
+            # Uploads are newest first, so stop once a page reaches back before the week
+            if not page_token or (oldest_on_page is not None and oldest_on_page < WEEK_START):
+                break
+
+        return videos[:max_results]
+
     def search_channel_videos(self, channel_name, channel_id=None, max_results=10):
         """
         Search for recent videos from a specific channel
-        
+
         Args:
             channel_name: Name of the channel to search
             channel_id: YouTube channel ID (if available, more accurate)
             max_results: Maximum number of results
         """
+        # Prefer the uploads playlist (1 unit) over search.list (100 units)
+        if channel_id and channel_id.startswith('UC'):
+            try:
+                return self.list_channel_uploads(channel_id, max_results)
+            except HttpError as e:
+                print(f"   ⚠️ Uploads lookup failed for '{channel_name}' ({e}); falling back to search")
+
         published_after = WEEK_START.isoformat() + 'Z'
         published_before = WEEK_END.isoformat() + 'Z'
-        
+
         try:
             # Build search params
             search_params = {
