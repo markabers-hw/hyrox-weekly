@@ -21,7 +21,9 @@ from datetime import date, datetime, timedelta, timezone
 from jinja2 import Template
 import pytz
 from urllib.parse import quote
-from description_text import clean_description
+from description_text import clean_description, shorten_description
+
+DESCRIPTION_LIMIT = 250  # max characters of a description shown in the newsletter
 
 load_dotenv()
 
@@ -995,7 +997,7 @@ def generate_ai_blurb(title, description, platform, creator_name=None, existing_
 
 Title: {title}
 
-Original Description: {description[:1000] if description else 'No description available'}{existing_context}
+Original Description: {clean_description(description)[:1000] if description else 'No description available'}{existing_context}
 
 Requirements:
 - STRICT LIMIT: Keep under 230 characters (about 1-2 short sentences)
@@ -1007,6 +1009,7 @@ Requirements:
 - Do not use quotation marks around the blurb
 - Do not start with "This video..." or "In this episode..."
 - Use varied sentence structures and opening words — no two blurbs in this edition should read alike
+- Do not mention a year or date unless it appears in the title or original description above. Never guess one.
 - NEVER use em dashes (—) anywhere in the text. Use commas, periods, colons, or separate sentences instead.
 
 Just return the blurb text, nothing else."""
@@ -1021,18 +1024,8 @@ Just return the blurb text, nothing else."""
         
         blurb = message.content[0].text.strip().replace('—', ', ')
         
-        # Ensure we don't exceed 250 chars (hard limit for newsletter display)
-        if len(blurb) > 250:
-            # Truncate at last complete sentence or word
-            truncated = blurb[:247]
-            last_period = truncated.rfind('.')
-            last_space = truncated.rfind(' ')
-            if last_period > 180:
-                blurb = truncated[:last_period + 1]
-            elif last_space > 200:
-                blurb = truncated[:last_space] + '...'
-            else:
-                blurb = truncated + '...'
+        # Hard limit for newsletter display: trim at a sentence or whole word, never mid-word
+        blurb = shorten_description(blurb, DESCRIPTION_LIMIT)
         
         return blurb, None
         
@@ -3234,7 +3227,7 @@ def organize_content_for_newsletter(content, config=None):
         elif item.get('custom_description'):
             item['description'] = item['custom_description']
         # Podcast/article descriptions arrive as raw HTML; strip it so every blurb renders in the same style
-        item['description'] = clean_description(item.get('description'))
+        item['description'] = clean_description(item.get('description'), limit=DESCRIPTION_LIMIT)
 
         if platform == 'youtube':
             cat = cats.get(item.get('category') or 'other', cats['other'])
@@ -3914,8 +3907,7 @@ def effective_blurb(item):
         return item['ai_description']
     if item.get('custom_description'):
         return item['custom_description']
-    original = clean_description(item.get('description'))
-    return original[:200] + ('...' if len(original) > 200 else '')
+    return clean_description(item.get('description'), limit=200)
 
 
 def render_item_tools(item):

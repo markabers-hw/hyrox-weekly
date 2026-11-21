@@ -144,7 +144,7 @@ def organize_content_for_newsletter(content):
         elif item.get('custom_description'):
             item['description'] = item['custom_description']
         # Podcast/article descriptions arrive as raw HTML; strip it so every blurb renders in the same style
-        item['description'] = clean_description(item.get('description'))
+        item['description'] = clean_description(item.get('description'), limit=250)
 
         if platform == 'youtube':
             cat = cats.get(item.get('category') or 'other', cats['other'])

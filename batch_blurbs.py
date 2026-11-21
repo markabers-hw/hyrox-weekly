@@ -7,6 +7,8 @@ import requests
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
+from description_text import clean_description, shorten_description
+
 load_dotenv()
 
 SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://ksqrakczmecdbzxwsvea.supabase.co')
@@ -60,7 +62,7 @@ def generate_blurb(client, item, creator_name, existing_blurbs):
 
 Title: {item.get('title', '')}
 
-Original Description: {(item.get('description') or 'No description available')[:1000]}{existing_context}
+Original Description: {clean_description(item.get('description')) or 'No description available'}{existing_context}
 
 Requirements:
 - STRICT LIMIT: Keep under 230 characters (about 1-2 short sentences)
@@ -71,6 +73,7 @@ Requirements:
 - Focus on the specific value: what will readers learn or gain?
 - Do not use quotation marks around the blurb
 - Do not start with "This video..." or "In this episode..."
+- Do not mention a year or date unless it appears in the title or original description above. Never guess one.
 - Use varied sentence structures and opening words — no two blurbs in this edition should read alike
 
 Just return the blurb text, nothing else."""
@@ -82,16 +85,7 @@ Just return the blurb text, nothing else."""
     )
     blurb = message.content[0].text.strip()
 
-    if len(blurb) > 250:
-        truncated = blurb[:247]
-        last_period = truncated.rfind('.')
-        last_space = truncated.rfind(' ')
-        if last_period > 180:
-            blurb = truncated[:last_period + 1]
-        elif last_space > 200:
-            blurb = truncated[:last_space] + '...'
-        else:
-            blurb = truncated + '...'
+    blurb = shorten_description(blurb, 250)  # sentence/word boundary, never mid-word
 
     return blurb
 
