@@ -3836,6 +3836,27 @@ def toggle_item_status(item, target):
     set_item_status(item, 'discovered' if effective_status(item) == target else target)
 
 
+def move_selected_item(item, siblings, direction):
+    """Move a selected item one place up (-1) or down (+1) among its platform's selected items.
+
+    Renumbers the platform's selected items 10, 20, 30... in the new order (the numbering auto-curation uses)
+    and saves only the ones whose number changed.
+    """
+    ordered = [c for c in siblings if effective_status(c) == 'selected']
+    ids = [c['id'] for c in ordered]
+    if item['id'] not in ids:
+        return
+    i = ids.index(item['id'])
+    j = i + direction
+    if not 0 <= j < len(ordered):
+        return
+    ordered[i], ordered[j] = ordered[j], ordered[i]
+    for position, c in enumerate(ordered):
+        new_order = (position + 1) * 10
+        if c.get('display_order') != new_order:
+            update_content_display_order(c['id'], new_order)
+
+
 def effective_blurb(item):
     """The description that will appear in the newsletter (same precedence as organize_content_for_newsletter)."""
     if item.get('use_ai_description') and item.get('ai_description'):
@@ -4182,8 +4203,10 @@ def render_content_item(item, display_tz):
 
 
 @st.fragment
-def render_review_row(item, display_tz, show_thumbs=True):
+def render_review_row(item, display_tz, show_thumbs=True, position=None, siblings=None):
     """One compact line for fast review: select/reject in one click, blurb visible, saved instantly.
+
+    Selected rows also get up/down arrows: position is the row's place among siblings (the platform's selected items).
 
     The thumbnail is part of the row's single markdown element and loads lazily, so it adds no elements
     and only fetches images as they scroll into view.
@@ -4191,15 +4214,24 @@ def render_review_row(item, display_tz, show_thumbs=True):
     status = effective_status(item)
     platform = item['platform']
 
-    sel_col, rej_col, body_col = st.columns([1, 1, 14], vertical_alignment="center")
+    sel_col, rej_col, move_col, body_col = st.columns([1, 1, 1, 14], vertical_alignment="center")
     with sel_col:
         st.button("✅", key=f"rv_sel_{item['id']}", type="primary" if status == 'selected' else "secondary",
                   help="Select (click again to clear)", on_click=toggle_item_status, args=(item, 'selected'))
     with rej_col:
         st.button("❌", key=f"rv_rej_{item['id']}", type="primary" if status == 'rejected' else "secondary",
                   help="Reject (click again to clear)", on_click=toggle_item_status, args=(item, 'rejected'))
+    with move_col:
+        if siblings is not None and status == 'selected':
+            move_up = st.button("▲", key=f"rv_up_{item['id']}", disabled=position == 0, help="Move up in the newsletter")
+            move_down = st.button("▼", key=f"rv_dn_{item['id']}", disabled=position == len(siblings) - 1, help="Move down in the newsletter")
+            if move_up or move_down:
+                move_selected_item(item, siblings, -1 if move_up else 1)
+                st.rerun()  # the row order changes, so the whole list needs to redraw
     with body_col:
         meta = [item['creator_name'] or 'Unknown']
+        if siblings is not None and status == 'selected':
+            meta.insert(0, f"#{position + 1}")
         if platform in ('youtube', 'podcast'):
             duration_str = format_duration(item.get('duration_seconds'))
             if duration_str:
@@ -4492,6 +4524,7 @@ hr { border-color: var(--hw-border); opacity: 1; margin: 1.4rem 0; }
 [class*="st-key-rv_rej_"] [data-testid="stBaseButton-primary"]:hover { box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4); }
 
 /* Review rows: roomy icon buttons (dimmed until selected or hovered), hairline between rows, soft hover */
+[class*="st-key-rv_up_"] button, [class*="st-key-rv_dn_"] button { min-height: 1.6rem; font-size: 0.7rem; padding: 0; }
 [class*="st-key-rv_"] button { padding: 0.35rem 0; min-height: 2.3rem; font-size: 1.05rem; }
 [class*="st-key-rv_"] [data-testid="stBaseButton-secondary"] { opacity: 0.65; }
 [class*="st-key-rv_"] [data-testid="stBaseButton-secondary"]:hover { opacity: 1; }
@@ -5288,9 +5321,13 @@ def main():
                 st.markdown(f"#### {cfg['emoji']} {cfg['name']} · {picked} selected of {len(platform_rows)}")
                 # Selected items always show, plus the top candidates. The rest is only built when switched on,
                 # so a Reddit-heavy week doesn't render hundreds of rows.
-                selected_rows = [c for c in platform_rows if c['status'] == 'selected']
+                # Selected rows follow the newsletter's own order: display order, with 0 or unset sorting last
+                selected_rows = sorted((c for c in platform_rows if c['status'] == 'selected'),
+                                       key=lambda c: c.get('display_order') or 999)
                 other_rows = [c for c in platform_rows if c['status'] != 'selected']
-                for item in selected_rows + other_rows[:REVIEW_CANDIDATES_PER_PLATFORM]:
+                for position, item in enumerate(selected_rows):
+                    render_review_row(item, display_tz, show_thumbs, position, selected_rows)
+                for item in other_rows[:REVIEW_CANDIDATES_PER_PLATFORM]:
                     render_review_row(item, display_tz, show_thumbs)
                 hidden_rows = other_rows[REVIEW_CANDIDATES_PER_PLATFORM:]
                 if hidden_rows and st.toggle(f"Show {len(hidden_rows)} more {cfg['name']} posts",
