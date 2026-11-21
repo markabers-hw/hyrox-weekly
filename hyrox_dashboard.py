@@ -16,7 +16,7 @@ import sys
 import time
 import json
 import requests
-from html import escape
+from html import escape, unescape
 from datetime import date, datetime, timedelta, timezone
 from jinja2 import Template
 import pytz
@@ -4182,8 +4182,12 @@ def render_content_item(item, display_tz):
 
 
 @st.fragment
-def render_review_row(item, display_tz):
-    """One compact line for fast review: select/reject in one click, blurb visible, saved instantly."""
+def render_review_row(item, display_tz, show_thumbs=True):
+    """One compact line for fast review: select/reject in one click, blurb visible, saved instantly.
+
+    The thumbnail is part of the row's single markdown element and loads lazily, so it adds no elements
+    and only fetches images as they scroll into view.
+    """
     status = effective_status(item)
     platform = item['platform']
 
@@ -4209,11 +4213,23 @@ def render_review_row(item, display_tz):
             meta.append(format_date_local(pub_date, display_tz))
         if item.get('selection_method') == 'yolo':
             meta.append("🤖")
-        st.markdown(f"**[{item['title'][:90]}{'...' if len(item['title']) > 90 else ''}]({item['url']})**  \n"
-                    f"<span class='rv-meta'>{escape(' • '.join(meta))}</span>", unsafe_allow_html=True)
+        title = item['title'][:90] + ('...' if len(item['title']) > 90 else '')
+        url = item['url'] if item['url'].startswith(('http://', 'https://')) else '#'
+        thumb = ''
+        if show_thumbs:
+            src = item.get('thumbnail_url') or ''
+            if src.startswith(('http://', 'https://')):
+                # YouTube's medium thumbnail is about a third smaller than the high one we store
+                src = src.replace('/hqdefault.', '/mqdefault.')
+                thumb = (f"<img class='rv-thumb' src='{escape(src, quote=True)}' loading='lazy' decoding='async' "
+                         f"referrerpolicy='no-referrer' alt=''>")
+            else:
+                thumb = f"<div class='rv-thumb rv-thumb-empty'>{PLATFORM_CONFIG.get(platform, {}).get('emoji', '')}</div>"
         blurb = effective_blurb(item)
-        if blurb:
-            st.caption(blurb)
+        text = (f"<a href='{escape(url, quote=True)}' target='_blank' rel='noopener'>{escape(unescape(title))}</a>"
+                f"<div class='rv-meta'>{escape(unescape(' • '.join(meta)))}</div>"
+                + (f"<div class='rv-blurb'>{escape(unescape(blurb))}</div>" if blurb else ''))
+        st.markdown(f"<div class='rv-body'>{thumb}<div class='rv-text'>{text}</div></div>", unsafe_allow_html=True)
 
 
 # ============================================================================
@@ -4484,6 +4500,12 @@ hr { border-color: var(--hw-border); opacity: 1; margin: 1.4rem 0; }
 }
 [data-testid="stHorizontalBlock"]:has([class*="st-key-rv_sel_"]):hover { background: rgba(255, 255, 255, 0.025); }
 .rv-meta { color: var(--hw-muted); font-size: 0.82rem; }
+.rv-body { display: flex; gap: 0.9rem; align-items: flex-start; }
+.rv-thumb { flex: none; width: 96px; height: 64px; object-fit: cover; border-radius: 8px; background: var(--hw-surface-2); }
+.rv-thumb-empty { display: flex; align-items: center; justify-content: center; font-size: 1.4rem; opacity: 0.55; }
+.rv-text { min-width: 0; }
+.rv-text a { font-weight: 650; }
+.rv-blurb { color: var(--hw-muted); font-size: 0.85rem; line-height: 1.45; margin-top: 0.2rem; }
 
 /* Cards, expanders, inputs, alerts */
 [data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] {
@@ -5205,12 +5227,21 @@ def main():
         st.markdown("---")
         
         # Filters
-        review_mode = st.toggle(
-            "⚡ Review mode",
-            value=True,
-            key="curation_review_mode",
-            help="Compact list: select or reject in one click, blurbs visible. Switch off for full cards (blurb editor, category, order, athlete tags)."
-        )
+        toggle_col1, toggle_col2, _ = st.columns([1.3, 1.3, 4])
+        with toggle_col1:
+            review_mode = st.toggle(
+                "⚡ Review mode",
+                value=True,
+                key="curation_review_mode",
+                help="Compact list: select or reject in one click, blurbs visible. Switch off for full cards (blurb editor, category, order, athlete tags)."
+            )
+        with toggle_col2:
+            show_thumbs = st.toggle(
+                "🖼️ Thumbnails",
+                value=True,
+                key="curation_thumbs",
+                help="Review mode only. Images load as you scroll; switch off to skip them on a slow connection."
+            )
         col1, col2, col3 = st.columns([2, 2, 1])
 
         with col1:
@@ -5260,12 +5291,12 @@ def main():
                 selected_rows = [c for c in platform_rows if c['status'] == 'selected']
                 other_rows = [c for c in platform_rows if c['status'] != 'selected']
                 for item in selected_rows + other_rows[:REVIEW_CANDIDATES_PER_PLATFORM]:
-                    render_review_row(item, display_tz)
+                    render_review_row(item, display_tz, show_thumbs)
                 hidden_rows = other_rows[REVIEW_CANDIDATES_PER_PLATFORM:]
                 if hidden_rows and st.toggle(f"Show {len(hidden_rows)} more {cfg['name']} posts",
                                              key=f"rv_more_{platform}_{week_start_date}"):
                     for item in hidden_rows:
-                        render_review_row(item, display_tz)
+                        render_review_row(item, display_tz, show_thumbs)
         else:
             # Initialize pagination state
             pagination_key = f"curation_page_{platform_filter}_{status_filter}"
