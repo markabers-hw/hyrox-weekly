@@ -1,0 +1,18 @@
+# Reconstructed 2026-09-15 from imports during laptop migration (no manifest existed).
+# Corrected 2026-10-21: discovery scripts import psycopg2 (not psycopg 3); added
+# anthropic (blurbs), googlenewsdecoder (article URLs) and resend (dashboard send).
+anthropic
+beautifulsoup4
+feedparser
+google-api-python-client
+googlenewsdecoder
+jinja2
+pillow
+playwright
+psycopg2-binary
+python-dateutil
+python-dotenv
+pytz
+requests
+resend
+streamlit
