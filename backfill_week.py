@@ -19,6 +19,7 @@ import argparse
 from datetime import datetime, timedelta, timezone
 
 import batch_yolo as by
+from selection import SELECT_FIELDS, choose_items
 
 PLATFORMS = ('youtube', 'podcast', 'article', 'reddit')
 SCRIPTS = {
@@ -41,31 +42,16 @@ def selected_counts(ws: str, end_date: str) -> dict[str, int]:
 
 
 def select_top(platform: str, ws: str, end_date: str) -> int:
-    """Select the top N discovered items for one platform, priority sources first (same rules as auto_curate_yolo)."""
+    """Select the best discovered items for one platform (same rules as the Monday job; see selection.py)."""
     priority_sources = by.supabase_get('priority_sources', 'is_active=eq.true') or []
     priority_names = {p['source_name'].lower() for p in priority_sources}
 
     content = by.supabase_get('content_items',
         f'platform=eq.{platform}&status=eq.discovered'
         f'&published_date=gte.{ws}&published_date=lt.{end_date}'
-        f'&select=id,view_count,comment_count,creators(name)'
-        f'&order=view_count.desc.nullslast') or []
+        f'&select={SELECT_FIELDS}') or []
 
-    if platform == 'reddit':
-        # Same bar as auto_curate_yolo: only well-discussed or well-upvoted threads
-        content = [c for c in content
-                   if (c.get('comment_count') or 0) >= by.YOLO_CONFIG['yolo_reddit_min_comments']
-                   or (c.get('view_count') or 0) >= by.YOLO_CONFIG['yolo_reddit_min_upvotes']]
-
-    def sort_key(item: dict) -> tuple:
-        creator = ((item.get('creators') or {}).get('name') or '').lower()
-        if platform == 'reddit':
-            # Discussions rank by how many comments they drew, then by upvotes
-            return (0 if creator in priority_names else 1, -(item.get('comment_count') or 0), -(item.get('view_count') or 0))
-        return (0 if creator in priority_names else 1, -(item.get('view_count') or 0))
-
-    content.sort(key=sort_key)
-    selected = content[:by.YOLO_CONFIG[f'yolo_max_{platform}']]
+    selected = choose_items(content, platform, by.YOLO_CONFIG, priority_names)
     for i, item in enumerate(selected):
         by.supabase_patch('content_items', f'id=eq.{item["id"]}', {
             'status': 'selected',

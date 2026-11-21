@@ -22,6 +22,7 @@ from jinja2 import Template
 import pytz
 from urllib.parse import quote
 from description_text import clean_description, shorten_description
+from selection import SELECT_FIELDS, choose_items
 
 DESCRIPTION_LIMIT = 250  # max characters of a description shown in the newsletter
 
@@ -726,6 +727,7 @@ def get_newsletter_settings():
         'yolo_max_reddit': '6',
         'yolo_reddit_min_comments': '20',
         'yolo_reddit_min_upvotes': '20',
+        'yolo_max_per_creator': '2',
     }
 
     rows = supabase_get('newsletter_settings') or []
@@ -1958,59 +1960,28 @@ def update_content_for_yolo(content_id, status, display_order, selection_method)
 
 def auto_curate_yolo(week_start, week_end, config):
     """
-    Auto-select content based on YOLO settings:
-    1. Get all discovered content
-    2. Filter (Reddit by min comments/upvotes)
-    3. Sort (priority sources first, then by engagement)
-    4. Select top N per platform
+    Auto-select content based on YOLO settings (the rules are shared with the Monday job, see selection.py):
+    1. Get all discovered content per platform
+    2. Keep only items about Hyrox (Reddit: those with enough comments/upvotes)
+    3. Rank: Hyrox in title, priority sources, then engagement
+    4. Select the top N per platform, at most `yolo_max_per_creator` per creator
     5. Assign display_order in increments of 10
     6. Mark selection_method='yolo'
     """
     priority_sources = get_priority_sources()
     priority_names = {p['source_name'].lower() for p in priority_sources}
 
-    limits = {
-        'youtube': int(config.get('yolo_max_youtube', 8)),
-        'podcast': int(config.get('yolo_max_podcast', 8)),
-        'article': int(config.get('yolo_max_article', 8)),
-        'reddit': int(config.get('yolo_max_reddit', 6)),
-    }
-
-    reddit_min_comments = int(config.get('yolo_reddit_min_comments', 20))
-    reddit_min_upvotes = int(config.get('yolo_reddit_min_upvotes', 20))
-
     summary = {'youtube': 0, 'podcast': 0, 'article': 0, 'reddit': 0, 'total': 0}
 
     for platform in ['youtube', 'podcast', 'article', 'reddit']:
-        # Get discovered content for this platform
         content = get_content_for_yolo(platform, week_start, week_end)
+        selected = choose_items(content, platform, config, priority_names)
 
-        # Filter Reddit by min comments/upvotes
-        if platform == 'reddit':
-            content = [c for c in content
-                      if (c.get('comment_count', 0) or 0) >= reddit_min_comments
-                      or (c.get('view_count', 0) or 0) >= reddit_min_upvotes]
-
-        # Sort: priority sources first, then by view_count (Reddit: by comments, then upvotes)
-        def sort_key(item):
-            creator = (item.get('creators', {}).get('name') or '').lower() if item.get('creators') else ''
-            is_priority = creator in priority_names
-            if platform == 'reddit':
-                return (0 if is_priority else 1, -(item.get('comment_count') or 0), -(item.get('view_count') or 0))
-            return (0 if is_priority else 1, -(item.get('view_count') or 0))
-
-        content.sort(key=sort_key)
-
-        # Select top N
-        selected = content[:limits[platform]]
-
-        # Update status and display_order
         for i, item in enumerate(selected):
-            display_order = (i + 1) * 10  # 10, 20, 30...
             update_content_for_yolo(
                 item['id'],
                 status='selected',
-                display_order=display_order,
+                display_order=(i + 1) * 10,  # 10, 20, 30...
                 selection_method='yolo'
             )
 
@@ -2029,8 +2000,7 @@ def get_content_for_yolo(platform, week_start, week_end):
         f'&status=eq.discovered'
         f'&published_date=gte.{week_start}'
         f'&published_date=lt.{end_date}'
-        f'&select=id,title,platform,url,view_count,comment_count,published_date,creators(name)'
-        f'&order=view_count.desc.nullslast'
+        f'&select={SELECT_FIELDS}'
     )
     return supabase_get('content_items', query) or []
 
@@ -4806,7 +4776,7 @@ def main():
                 f"{config.get('yolo_max_article', 8)} articles, "
                 f"{config.get('yolo_max_reddit', 6)} Reddit threads"
             )
-            st.caption(f"Priority sources selected first • Reddit ranked by comments, filtered by {config.get('yolo_reddit_min_comments', 20)}+ comments or {config.get('yolo_reddit_min_upvotes', 20)}+ upvotes")
+            st.caption(f"Only content that mentions Hyrox • Hyrox in the title, then priority sources, then engagement • max {config.get('yolo_max_per_creator', 2)} per creator • Reddit ranked by comments, {config.get('yolo_reddit_min_comments', 20)}+ comments or {config.get('yolo_reddit_min_upvotes', 20)}+ upvotes")
 
         with yolo_col2:
             if st.button("🚀 YOLO!", type="primary", use_container_width=True, key="yolo_button"):
@@ -8366,6 +8336,15 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                 help="Maximum Reddit threads to auto-select"
             )
             config['yolo_max_reddit'] = str(config['yolo_max_reddit'])
+
+            config['yolo_max_per_creator'] = st.number_input(
+                "Max per creator",
+                min_value=0, max_value=20,
+                value=int(config.get('yolo_max_per_creator', 2)),
+                help="Most items one channel, show or site can contribute per platform. 0 = no limit. "
+                     "Only enforced while enough other items exist to fill the quota."
+            )
+            config['yolo_max_per_creator'] = str(config['yolo_max_per_creator'])
 
         with yolo_col2:
             st.markdown("**Reddit Filters**")

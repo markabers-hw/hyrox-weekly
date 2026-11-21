@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 from description_text import clean_description, shorten_description
+from selection import SELECT_FIELDS, choose_items, relevance_tier
 
 load_dotenv()
 
@@ -36,6 +37,7 @@ YOLO_DEFAULTS = {
     'yolo_max_reddit': 6,
     'yolo_reddit_min_comments': 20,
     'yolo_reddit_min_upvotes': 20,
+    'yolo_max_per_creator': 2,
 }
 
 YOLO_CONFIG = dict(YOLO_DEFAULTS)
@@ -193,18 +195,9 @@ def run_discovery_script(script_name, week_start_str, week_end_str):
 
 
 def auto_curate_yolo(week_start, week_end):
-    """Select top content per platform by engagement score."""
+    """Auto-select the best content per platform (rules live in selection.py)."""
     priority_sources = supabase_get('priority_sources', 'is_active=eq.true') or []
     priority_names = {p['source_name'].lower() for p in priority_sources}
-
-    limits = {
-        'youtube': YOLO_CONFIG['yolo_max_youtube'],
-        'podcast': YOLO_CONFIG['yolo_max_podcast'],
-        'article': YOLO_CONFIG['yolo_max_article'],
-        'reddit': YOLO_CONFIG['yolo_max_reddit'],
-    }
-    reddit_min_comments = YOLO_CONFIG['yolo_reddit_min_comments']
-    reddit_min_upvotes = YOLO_CONFIG['yolo_reddit_min_upvotes']
 
     ws = week_start.strftime('%Y-%m-%d')
     end_date = (week_end + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -214,25 +207,9 @@ def auto_curate_yolo(week_start, week_end):
         content = supabase_get('content_items',
             f'platform=eq.{platform}&status=eq.discovered'
             f'&published_date=gte.{ws}&published_date=lt.{end_date}'
-            f'&select=id,title,platform,url,view_count,comment_count,published_date,creators(name)'
-            f'&order=view_count.desc.nullslast') or []
+            f'&select={SELECT_FIELDS}') or []
 
-        if platform == 'reddit':
-            content = [c for c in content
-                      if (c.get('comment_count', 0) or 0) >= reddit_min_comments
-                      or (c.get('view_count', 0) or 0) >= reddit_min_upvotes]
-
-        def sort_key(item):
-            creator = (item.get('creators', {}).get('name') or '').lower() if item.get('creators') else ''
-            is_priority = creator in priority_names
-            if platform == 'reddit':
-                # Discussions rank by how many comments they drew, then by upvotes
-                return (0 if is_priority else 1, -(item.get('comment_count') or 0), -(item.get('view_count') or 0))
-            return (0 if is_priority else 1, -(item.get('view_count') or 0))
-
-        content.sort(key=sort_key)
-        selected = content[:limits[platform]]
-
+        selected = choose_items(content, platform, YOLO_CONFIG, priority_names)
         for i, item in enumerate(selected):
             supabase_patch('content_items', f'id=eq.{item["id"]}', {
                 'status': 'selected',
@@ -242,6 +219,8 @@ def auto_curate_yolo(week_start, week_end):
             })
 
         summary[platform] = len(selected)
+        off_topic = '' if platform == 'reddit' else f", {sum(1 for c in content if relevance_tier(c) == 0)} not about Hyrox"
+        print(f"    {platform}: {len(content)} discovered{off_topic}, selected {len(selected)}")
 
     summary['total'] = sum(summary.values())
     return summary

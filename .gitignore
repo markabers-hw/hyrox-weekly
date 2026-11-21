@@ -58,3 +58,6 @@ subscribers.json
 
 # Runtime logs
 logs/
+
+# Row snapshots written by reselect_week.py (for --restore)
+reselect_snapshots/

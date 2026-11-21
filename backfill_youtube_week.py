@@ -17,13 +17,13 @@ import argparse
 from datetime import datetime, timezone, timedelta
 
 import batch_yolo as by
+from selection import SELECT_FIELDS, choose_items
 
 
 def curate_youtube_only(week_start, week_end):
-    """Select top-N YouTube items for the week by the same rules as auto_curate_yolo."""
+    """Select the best YouTube items for the week (same rules as the Monday job; see selection.py)."""
     priority_sources = by.supabase_get('priority_sources', 'is_active=eq.true') or []
     priority_names = {p['source_name'].lower() for p in priority_sources}
-    limit = by.YOLO_CONFIG['yolo_max_youtube']
 
     ws = week_start.strftime('%Y-%m-%d')
     end_date = (week_end + timedelta(days=1)).strftime('%Y-%m-%d')
@@ -31,15 +31,9 @@ def curate_youtube_only(week_start, week_end):
     content = by.supabase_get('content_items',
         f'platform=eq.youtube&status=eq.discovered'
         f'&published_date=gte.{ws}&published_date=lt.{end_date}'
-        f'&select=id,title,view_count,creators(name)'
-        f'&order=view_count.desc.nullslast') or []
+        f'&select={SELECT_FIELDS}') or []
 
-    def sort_key(item):
-        creator = (item.get('creators', {}).get('name') or '').lower() if item.get('creators') else ''
-        return (0 if creator in priority_names else 1, -(item.get('view_count') or 0))
-
-    content.sort(key=sort_key)
-    selected = content[:limit]
+    selected = choose_items(content, 'youtube', by.YOLO_CONFIG, priority_names)
     for i, item in enumerate(selected):
         by.supabase_patch('content_items', f'id=eq.{item["id"]}', {
             'status': 'selected',
