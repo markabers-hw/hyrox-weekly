@@ -246,6 +246,9 @@ PLATFORM_CONFIG = {
 # Pagination settings
 ITEMS_PER_PAGE = 15
 
+# Review mode shows every selected item plus this many top candidates per platform; the rest sit behind a switch
+REVIEW_CANDIDATES_PER_PLATFORM = 10
+
 # ============================================================================
 # DATABASE FUNCTIONS (using Supabase REST API)
 # ============================================================================
@@ -5234,8 +5237,17 @@ def main():
                 platform_rows.sort(key=lambda c: status_rank.get(c['status'], 3))
                 picked = sum(1 for c in platform_rows if c['status'] == 'selected')
                 st.markdown(f"#### {cfg['emoji']} {cfg['name']} · {picked} selected of {len(platform_rows)}")
-                for item in platform_rows:
+                # Selected items always show, plus the top candidates. The rest is only built when switched on,
+                # so a Reddit-heavy week doesn't render hundreds of rows.
+                selected_rows = [c for c in platform_rows if c['status'] == 'selected']
+                other_rows = [c for c in platform_rows if c['status'] != 'selected']
+                for item in selected_rows + other_rows[:REVIEW_CANDIDATES_PER_PLATFORM]:
                     render_review_row(item, display_tz)
+                hidden_rows = other_rows[REVIEW_CANDIDATES_PER_PLATFORM:]
+                if hidden_rows and st.toggle(f"Show {len(hidden_rows)} more {cfg['name']} posts",
+                                             key=f"rv_more_{platform}_{week_start_date}"):
+                    for item in hidden_rows:
+                        render_review_row(item, display_tz)
         else:
             # Initialize pagination state
             pagination_key = f"curation_page_{platform_filter}_{status_filter}"
