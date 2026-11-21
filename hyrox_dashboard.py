@@ -21,6 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 from jinja2 import Template
 import pytz
 from urllib.parse import quote
+from description_text import clean_description
 
 load_dotenv()
 
@@ -3232,7 +3233,9 @@ def organize_content_for_newsletter(content, config=None):
             item['description'] = item['ai_description']
         elif item.get('custom_description'):
             item['description'] = item['custom_description']
-        
+        # Podcast/article descriptions arrive as raw HTML; strip it so every blurb renders in the same style
+        item['description'] = clean_description(item.get('description'))
+
         if platform == 'youtube':
             cat = cats.get(item.get('category') or 'other', cats['other'])
             if cat not in videos: videos[cat] = []
@@ -3911,7 +3914,7 @@ def effective_blurb(item):
         return item['ai_description']
     if item.get('custom_description'):
         return item['custom_description']
-    original = item.get('description') or ''
+    original = clean_description(item.get('description'))
     return original[:200] + ('...' if len(original) > 200 else '')
 
 
@@ -3981,7 +3984,7 @@ def render_item_tools(item):
     # Stay open after generating/saving so the result is visible instead of the section collapsing
     blurb_open_key = f"blurb_open_{item['id']}"
     with st.expander("✏️ Edit Description / AI Blurb", expanded=bool(st.session_state.get(blurb_open_key))):
-        original_desc = item.get('description') or ''
+        original_desc = clean_description(item.get('description'))
         custom_desc = item.get('custom_description') or ''
         ai_desc = item.get('ai_description') or ''
         use_ai = item.get('use_ai_description') or False

@@ -16,6 +16,8 @@ from datetime import datetime, timedelta, timezone
 from jinja2 import Template
 from dotenv import load_dotenv
 
+from description_text import clean_description
+
 load_dotenv()
 
 # Supabase config
@@ -141,6 +143,8 @@ def organize_content_for_newsletter(content):
             item['description'] = item['ai_description']
         elif item.get('custom_description'):
             item['description'] = item['custom_description']
+        # Podcast/article descriptions arrive as raw HTML; strip it so every blurb renders in the same style
+        item['description'] = clean_description(item.get('description'))
 
         if platform == 'youtube':
             cat = cats.get(item.get('category') or 'other', cats['other'])
