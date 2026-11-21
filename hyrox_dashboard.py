@@ -1285,7 +1285,9 @@ def send_test_email_via_resend(html, subject, to_email, edition_number=None):
 def update_content_ai_description(content_id, ai_description):
     """Update the AI-generated description for a content item"""
     data = {'ai_description': ai_description, 'updated_at': datetime.now(timezone.utc).isoformat()}
-    return supabase_patch('content_items', f'id=eq.{content_id}', data)
+    result = supabase_patch('content_items', f'id=eq.{content_id}', data)
+    clear_content_caches()  # without this the cards keep showing the cached (old) blurb
+    return result
 
 
 def update_content_use_ai_description(content_id, use_ai):
@@ -3580,12 +3582,39 @@ def generate_website_html(content, edition_number, config=None, selected_athlete
 
 SITE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hyroxweekly-site')
 
+def netlify_ready():
+    """Check the Netlify CLI can deploy: installed, logged in, and this site folder linked to a Netlify site.
+
+    Returns (ok, problem). Run before any files are touched, so a missing login fails fast with a clear
+    message instead of leaving the site folder half-updated or hanging on a browser login.
+    """
+    import shutil
+    import subprocess as _sp
+
+    if not shutil.which('netlify'):
+        return False, "the Netlify CLI isn't installed (npm install -g netlify-cli)"
+    try:
+        status = _sp.run(['netlify', 'status'], capture_output=True, text=True, timeout=45,
+                         cwd=SITE_DIR, env={**os.environ, 'CI': 'true'})
+    except (_sp.TimeoutExpired, OSError) as e:
+        return False, f"the Netlify CLI didn't respond ({e})"
+    if 'Not logged in' in (status.stdout + status.stderr) and not os.getenv('NETLIFY_AUTH_TOKEN'):
+        return False, "the Netlify CLI isn't logged in. Run `netlify login` in a terminal, then try again"
+    linked = os.path.exists(os.path.join(SITE_DIR, '.netlify', 'state.json')) or os.getenv('NETLIFY_SITE_ID')
+    if not linked:
+        return False, "the site folder isn't linked to a Netlify site. Run `netlify link` inside hyroxweekly-site, then try again"
+    return True, ''
+
+
 def deploy_to_website(website_html, edition_number, week_start, week_end, content_counts):
     """Deploy edition to hyroxweekly.com: save HTML, update archive index + homepage, netlify deploy."""
     import json as _json
     import re as _re
 
     steps = []
+    ready, problem = netlify_ready()
+    if not ready:
+        return False, [f"Netlify deploy failed (nothing was changed): {problem}"]
     filename = f"edition-{edition_number}-{week_start.strftime('%Y-%m-%d')}.html"
     archive_path = os.path.join(SITE_DIR, 'archive', filename)
 
@@ -3699,11 +3728,15 @@ def deploy_to_website(website_html, edition_number, week_start, week_end, conten
 
     # 5. Deploy via Netlify CLI
     import subprocess as _sp
-    result = _sp.run(
-        ['netlify', 'deploy', '--prod', '--dir', '.'],
-        capture_output=True, text=True, timeout=120,
-        cwd=SITE_DIR
-    )
+    try:
+        result = _sp.run(
+            ['netlify', 'deploy', '--prod', '--dir', '.'],
+            capture_output=True, text=True, timeout=300,
+            cwd=SITE_DIR, env={**os.environ, 'CI': 'true'}  # CI mode: never wait on an interactive prompt
+        )
+    except (_sp.TimeoutExpired, OSError) as e:
+        steps.append(f"Netlify deploy failed: {e}")
+        return False, steps
     if result.returncode == 0:
         # Extract the live URL from output
         url_match = _re.search(r'(https://[^\s]+hyroxweekly[^\s]*)', result.stdout)
@@ -3945,7 +3978,9 @@ def render_item_tools(item):
                 st.rerun()
 
     # Expandable section for description editing with AI blurb
-    with st.expander("✏️ Edit Description / AI Blurb", expanded=False):
+    # Stay open after generating/saving so the result is visible instead of the section collapsing
+    blurb_open_key = f"blurb_open_{item['id']}"
+    with st.expander("✏️ Edit Description / AI Blurb", expanded=bool(st.session_state.get(blurb_open_key))):
         original_desc = item.get('description') or ''
         custom_desc = item.get('custom_description') or ''
         ai_desc = item.get('ai_description') or ''
@@ -3978,7 +4013,9 @@ def render_item_tools(item):
                     )
                     if blurb:
                         update_content_ai_description(item['id'], blurb)
-                        st.success("AI blurb generated!")
+                        # Generating a blurb means you want it used: switch the newsletter to it
+                        update_content_use_ai_description(item['id'], True)
+                        st.session_state[blurb_open_key] = True
                         st.rerun()
                     else:
                         st.error(error)
@@ -3997,7 +4034,10 @@ def render_item_tools(item):
 
         if st.button("💾 Save Custom Description", key=f"save_desc_{item['id']}"):
             update_content_custom_description(item['id'], edited_desc if edited_desc.strip() else None)
-            st.success("Custom description saved!")
+            if edited_desc.strip():
+                # The AI blurb takes precedence over a custom one, so switch to custom or the edit would never show
+                update_content_use_ai_description(item['id'], False)
+            st.session_state[blurb_open_key] = True
             st.rerun()
 
         st.markdown("---")
@@ -4039,7 +4079,7 @@ def render_item_tools(item):
                 else:  # original
                     update_content_use_ai_description(item['id'], False)
                     update_content_custom_description(item['id'], None)
-                st.success("Description choice saved!")
+                st.session_state[blurb_open_key] = True
                 st.rerun()
 
         st.markdown("**Preview (what will appear in newsletter):**")
