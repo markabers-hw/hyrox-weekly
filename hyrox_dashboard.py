@@ -16,6 +16,7 @@ import sys
 import time
 import json
 import requests
+from html import escape
 from datetime import date, datetime, timedelta, timezone
 from jinja2 import Template
 import pytz
@@ -45,6 +46,16 @@ def get_supabase_headers(use_service_key=True):
         'Prefer': 'return=representation'
     }
 
+HTTP_TIMEOUT = 30  # seconds; a stalled request should fail instead of hanging the dashboard
+
+@st.cache_resource
+def get_http_session():
+    """Shared HTTP session so Supabase calls reuse one connection instead of opening a new one each time"""
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=16)
+    session.mount('https://', adapter)
+    return session
+
 def supabase_get(table, params=None, single=False):
     """GET request to Supabase REST API"""
     headers = get_supabase_headers()
@@ -52,7 +63,7 @@ def supabase_get(table, params=None, single=False):
     if params:
         url += f"?{params}"
     try:
-        response = requests.get(url, headers=headers)
+        response = get_http_session().get(url, headers=headers, timeout=HTTP_TIMEOUT)
         if response.status_code == 200:
             data = response.json()
             return data[0] if single and data else data
@@ -66,7 +77,7 @@ def supabase_post(table, data):
     headers = get_supabase_headers()
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     try:
-        response = requests.post(url, headers=headers, json=data)
+        response = get_http_session().post(url, headers=headers, json=data, timeout=HTTP_TIMEOUT)
         if response.status_code in [200, 201]:
             result = response.json()
             return result[0] if isinstance(result, list) and result else result
@@ -81,7 +92,7 @@ def supabase_patch(table, params, data):
     headers = get_supabase_headers()
     url = f"{SUPABASE_URL}/rest/v1/{table}?{params}"
     try:
-        response = requests.patch(url, headers=headers, json=data)
+        response = get_http_session().patch(url, headers=headers, json=data, timeout=HTTP_TIMEOUT)
         if response.status_code in [200, 204]:
             if response.text:
                 result = response.json()
@@ -98,7 +109,7 @@ def supabase_delete(table, params):
     headers = get_supabase_headers()
     url = f"{SUPABASE_URL}/rest/v1/{table}?{params}"
     try:
-        response = requests.delete(url, headers=headers)
+        response = get_http_session().delete(url, headers=headers, timeout=HTTP_TIMEOUT)
         return response.status_code in [200, 204]
     except Exception as e:
         print(f"Supabase DELETE error: {e}")
@@ -113,7 +124,7 @@ def supabase_upsert(table, data, on_conflict=None):
     if on_conflict:
         url += f"?on_conflict={on_conflict}"
     try:
-        response = requests.post(url, headers=headers, json=data)
+        response = get_http_session().post(url, headers=headers, json=data, timeout=HTTP_TIMEOUT)
         if response.status_code in [200, 201]:
             result = response.json()
             return result[0] if isinstance(result, list) and result else result
@@ -730,10 +741,38 @@ def save_all_newsletter_settings(config):
     return True
 
 
+def supabase_get_all(table, params, page_size=1000):
+    """GET every matching row, paging past Supabase's 1000-row response cap. Include an order in params."""
+    rows, offset = [], 0
+    while True:
+        headers = {**get_supabase_headers(), 'Range-Unit': 'items', 'Range': f'{offset}-{offset + page_size - 1}'}
+        try:
+            response = get_http_session().get(f"{SUPABASE_URL}/rest/v1/{table}?{params}", headers=headers, timeout=HTTP_TIMEOUT)
+        except Exception as e:
+            print(f"Supabase GET error: {e}")
+            break
+        if response.status_code not in (200, 206):
+            break
+        batch = response.json()
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    return rows
+
+
 @st.cache_data(ttl=60)
 def get_stats():
-    """Get content counts by platform and status"""
-    content = supabase_get('content_items', 'select=platform,status') or []
+    """Get content counts by platform and status.
+
+    Reads the grouped content_status_counts view (one tiny request). If the view hasn't been created
+    (see migrations/2026-11-21_content_status_counts_view.sql) it pages through the whole table instead.
+    """
+    view_rows = supabase_get('content_status_counts', 'select=platform,status,count')
+    if view_rows:
+        return [{'platform': r['platform'], 'status': r['status'], 'count': r['count']} for r in view_rows]
+
+    content = supabase_get_all('content_items', 'select=platform,status&order=id')
     # Count by platform and status
     counts = {}
     for item in content:
@@ -809,6 +848,16 @@ def _get_content_impl(platform_filter='all', status_filter='discovered', week_st
         item['creator_platform_id'] = creator.get('platform_id')
 
     return content
+
+
+def get_week_content(week_start, week_end):
+    """Every item for the week in one cached query, or None for "All Time".
+
+    Curation filters this list in Python, so changing platform/status filters needs no database call.
+    """
+    if not (week_start and week_end):
+        return None
+    return get_content_cached('all', 'all', week_start, week_end)
 
 
 def clear_content_caches():
@@ -3203,12 +3252,29 @@ def organize_content_for_newsletter(content, config=None):
     return videos, podcasts, articles, reddit_posts
 
 
+# Edition #1 covers the week starting this Monday; every Mon-Sun week after it is one edition
+FIRST_EDITION_MONDAY = date(2025, 12, 15)
+
+
+def edition_number_for_week(week_start):
+    """Edition number for the week starting on the given Monday, or None if before Edition #1."""
+    edition = (week_start - FIRST_EDITION_MONDAY).days // 7 + 1
+    return edition if edition >= 1 else None
+
+
 @st.cache_data(ttl=3600)  # Cache for 1 hour (weeks don't change often)
-def generate_week_options(num_weeks=12):
-    """Generate a list of week options for selectors"""
+def generate_week_options(num_weeks=None):
+    """Generate a list of week options for selectors, newest first.
+
+    Covers every week back to Edition #1 unless num_weeks limits it. Labels include the edition number.
+    """
     today = datetime.now()
     weeks = []
-    
+
+    if num_weeks is None:
+        this_monday = today.date() - timedelta(days=today.weekday())
+        num_weeks = (this_monday - FIRST_EDITION_MONDAY).days // 7 + 1
+
     for i in range(num_weeks):
         # Calculate Monday of that week (editions run Mon-Sun)
         days_since_monday = today.weekday()
@@ -3222,16 +3288,20 @@ def generate_week_options(num_weeks=12):
             label = f"{week_start.strftime('%B')} {week_start.day} - {week_end.strftime('%B')} {week_end.day}, {week_end.year}"
         else:
             label = f"{week_start.strftime('%B')} {week_start.day}, {week_start.year} - {week_end.strftime('%B')} {week_end.day}, {week_end.year}"
-        
+
+        edition = edition_number_for_week(week_start.date())
+        if edition:
+            label = f"Edition #{edition} · {label}"
+
         if i == 0:
             label = f"📍 Current Week: {label}"
-        
+
         weeks.append({
             'label': label,
             'start': week_start.date(),
             'end': week_end.date()
         })
-    
+
     # Add "All Time" option
     weeks.append({
         'label': '📚 All Time (no date filter)',
@@ -3736,15 +3806,297 @@ def format_duration(seconds):
 # CONTENT ITEM FRAGMENT - Renders independently to avoid full page reruns
 # ============================================================================
 
+def _set_session_value(key, value):
+    """Button callback: store a value in session state. Callbacks run before the rerun, so a click costs one run instead of two."""
+    st.session_state[key] = value
+
+
+def effective_status(item):
+    """Item status, honouring a change made on its card that the cached list doesn't reflect yet."""
+    override = st.session_state.get(f"status_override_{item['id']}")
+    if override and override[0] == item['status']:
+        return override[1]
+    return item['status']
+
+
+def set_item_status(item, new_status):
+    """Button callback: save a status change and remember it for this card.
+
+    Only the clicked card/row re-renders. Page-level counts and the sidebar catch up on the next full refresh.
+    """
+    update_content_status(item['id'], new_status)
+    st.session_state[f"status_override_{item['id']}"] = (item['status'], new_status)
+
+
+def toggle_item_status(item, target):
+    """Review-row callback: pressing the active decision again clears it back to 'discovered'."""
+    set_item_status(item, 'discovered' if effective_status(item) == target else target)
+
+
+def effective_blurb(item):
+    """The description that will appear in the newsletter (same precedence as organize_content_for_newsletter)."""
+    if item.get('use_ai_description') and item.get('ai_description'):
+        return item['ai_description']
+    if item.get('custom_description'):
+        return item['custom_description']
+    original = item.get('description') or ''
+    return original[:200] + ('...' if len(original) > 200 else '')
+
+
+def render_item_tools(item):
+    """Secondary per-item tools: category, order, podcast links, blurb editor, priority source, move week, athlete tags.
+
+    Only built when "More tools" is switched on for the card, so a page of cards doesn't carry hundreds of unused widgets.
+    """
+    platform = item['platform']
+
+    tool_col1, tool_col2 = st.columns(2)
+    with tool_col1:
+        current_cat = item['category'] or 'other'
+        cat_opts = [c[0] for c in CATEGORIES]
+        new_cat = st.selectbox(
+            "Category",
+            options=cat_opts,
+            index=cat_opts.index(current_cat) if current_cat in cat_opts else 0,
+            format_func=lambda x: dict(CATEGORIES)[x],
+            key=f"cat_{item['id']}"
+        )
+        # Only save when button is clicked to avoid refresh loops
+        if st.button("💾 Save category", key=f"save_cat_{item['id']}"):
+            if new_cat != current_cat:
+                update_content_category(item['id'], new_cat)
+                st.rerun()
+
+    with tool_col2:
+        current_order = item.get('display_order') or 999
+        new_order = st.number_input(
+            "Order (lower = first)",
+            min_value=1,
+            max_value=99,
+            value=min(current_order, 99) if current_order < 999 else 1,
+            key=f"order_{item['id']}"
+        )
+        if st.button("💾 Save order", key=f"save_order_{item['id']}"):
+            if new_order != current_order:
+                update_content_display_order(item['id'], new_order)
+                st.rerun()
+
+    if platform == 'podcast':
+        spotify_url, apple_url = parse_podcast_links(item.get('editorial_note', ''))
+        with st.expander("🔗 Edit Podcast Links", expanded=False):
+            st.caption("Update Spotify and Apple Podcast URLs for this episode")
+
+            new_spotify = st.text_input(
+                "Spotify URL",
+                value=spotify_url or '',
+                key=f"spotify_{item['id']}",
+                placeholder="https://open.spotify.com/episode/..."
+            )
+
+            new_apple = st.text_input(
+                "Apple Podcasts URL",
+                value=apple_url or '',
+                key=f"apple_{item['id']}",
+                placeholder="https://podcasts.apple.com/..."
+            )
+
+            if st.button("💾 Save Links", key=f"save_links_{item['id']}"):
+                update_podcast_links(item['id'], new_spotify, new_apple)
+                st.success("✅ Podcast links updated!")
+                st.rerun()
+
+    # Expandable section for description editing with AI blurb
+    with st.expander("✏️ Edit Description / AI Blurb", expanded=False):
+        original_desc = item.get('description') or ''
+        custom_desc = item.get('custom_description') or ''
+        ai_desc = item.get('ai_description') or ''
+        use_ai = item.get('use_ai_description') or False
+
+        st.markdown("**📄 Original Description:**")
+        if original_desc:
+            st.caption(original_desc[:300] + ('...' if len(original_desc) > 300 else ''))
+        else:
+            st.caption("_No original description available_")
+
+        st.markdown("---")
+
+        st.markdown("**✨ AI-Generated Blurb:**")
+
+        if ai_desc:
+            st.info(ai_desc)
+        else:
+            st.caption("_No AI blurb generated yet_")
+
+        col_gen1, col_gen2 = st.columns([1, 2])
+        with col_gen1:
+            if st.button("✨ Generate AI Blurb", key=f"gen_ai_{item['id']}"):
+                with st.spinner("Generating..."):
+                    blurb, error = generate_ai_blurb(
+                        title=item['title'],
+                        description=original_desc,
+                        platform=item['platform'],
+                        creator_name=item.get('creator_name')
+                    )
+                    if blurb:
+                        update_content_ai_description(item['id'], blurb)
+                        st.success("AI blurb generated!")
+                        st.rerun()
+                    else:
+                        st.error(error)
+
+        st.markdown("---")
+
+        st.markdown("**✏️ Custom Description (editable):**")
+        edited_desc = st.text_area(
+            "Edit description",
+            value=custom_desc if custom_desc else (ai_desc if ai_desc else ''),
+            key=f"desc_{item['id']}",
+            height=80,
+            label_visibility="collapsed",
+            placeholder="Enter a custom description or edit the AI blurb..."
+        )
+
+        if st.button("💾 Save Custom Description", key=f"save_desc_{item['id']}"):
+            update_content_custom_description(item['id'], edited_desc if edited_desc.strip() else None)
+            st.success("Custom description saved!")
+            st.rerun()
+
+        st.markdown("---")
+
+        st.markdown("**🎯 Use in Newsletter:**")
+
+        if use_ai and ai_desc:
+            current_selection = "ai"
+        elif custom_desc:
+            current_selection = "custom"
+        else:
+            current_selection = "original"
+
+        desc_options = ["original", "custom", "ai"]
+        desc_labels = {
+            "original": "📄 Original Description",
+            "custom": "✏️ Custom Description",
+            "ai": "✨ AI Blurb"
+        }
+
+        selected_desc = st.radio(
+            "Select which description to use",
+            options=desc_options,
+            index=desc_options.index(current_selection),
+            format_func=lambda x: desc_labels[x],
+            key=f"desc_choice_{item['id']}",
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+
+        # Use button to save selection to avoid refresh loops
+        if st.button("💾 Save Description Choice", key=f"save_desc_choice_{item['id']}"):
+            if selected_desc != current_selection:
+                if selected_desc == "ai":
+                    update_content_use_ai_description(item['id'], True)
+                    update_content_custom_description(item['id'], None)
+                elif selected_desc == "custom":
+                    update_content_use_ai_description(item['id'], False)
+                else:  # original
+                    update_content_use_ai_description(item['id'], False)
+                    update_content_custom_description(item['id'], None)
+                st.success("Description choice saved!")
+                st.rerun()
+
+        st.markdown("**Preview (what will appear in newsletter):**")
+        if selected_desc == "ai" and ai_desc:
+            st.success(ai_desc)
+        elif selected_desc == "custom" and custom_desc:
+            st.success(custom_desc)
+        elif selected_desc == "custom" and edited_desc:
+            st.warning(f"(Unsaved) {edited_desc}")
+        else:
+            st.success(original_desc[:200] + ('...' if len(original_desc) > 200 else '') if original_desc else "_No description_")
+
+    # Priority source button
+    creator_name = item.get('creator_name') or 'Unknown'
+    if creator_name and creator_name != 'Unknown':
+        existing_priorities = get_priority_sources(platform)
+        is_priority = any(p['source_name'].lower() == creator_name.lower() for p in existing_priorities)
+
+        if is_priority:
+            st.caption("⭐ Priority Source")
+        else:
+            if st.button(f"⭐ Add '{creator_name}' as Priority", key=f"priority_{item['id']}", help="Always check this source during discovery"):
+                source_type = 'channel' if platform == 'youtube' else 'show' if platform == 'podcast' else 'source'
+                source_id = item.get('creator_platform_id') if platform == 'youtube' else None
+                add_priority_source(
+                    platform=platform,
+                    source_type=source_type,
+                    source_name=creator_name,
+                    source_id=source_id,
+                    source_url=item.get('url', ''),
+                    notes=f"Added from curation on {datetime.now().strftime('%Y-%m-%d')}"
+                )
+                st.success(f"✅ Added '{creator_name}' as priority source!")
+                st.rerun()
+
+    # Move to different week
+    with st.expander("📅 Move to Week", expanded=False):
+        move_weeks = generate_week_options(num_weeks=12)
+        # Exclude the "All Time" entry
+        move_weeks = [w for w in move_weeks if w['start'] is not None]
+        move_labels = [w['label'] for w in move_weeks]
+
+        move_selection = st.selectbox(
+            "Move to",
+            options=range(len(move_weeks)),
+            format_func=lambda i: move_labels[i],
+            key=f"move_week_{item['id']}",
+            label_visibility="collapsed"
+        )
+
+        if st.button("📅 Move", key=f"move_btn_{item['id']}", use_container_width=True):
+            target_week = move_weeks[move_selection]
+            # Set published_date to the Monday of the target week
+            update_content_published_date(item['id'], target_week['start'])
+            st.success(f"Moved to {target_week['label']}")
+            st.rerun()
+
+    # Tag athletes (Phase 1) — flows this content into the tagged athletes' editions
+    with st.expander("🏷️ Tag Athletes", expanded=False):
+        tag_athletes = get_athletes_for_tagging_cached()
+        tag_name_by_id = {a['id']: a['name'] for a in tag_athletes}
+        item_tags = get_tags_for_content([item['id']]).get(item['id'], [])
+        tagged_ids = [t['athlete_id'] for t in item_tags if t['status'] == 'selected']
+        tag_suggested = [t['name'] for t in item_tags if t['status'] == 'suggested']
+        if tag_suggested:
+            st.caption("💡 Suggested: " + ", ".join(tag_suggested) + " — selecting below confirms them.")
+        picked = st.multiselect(
+            "Athletes featured in this content",
+            options=[a['id'] for a in tag_athletes],
+            default=tagged_ids,
+            format_func=lambda i: tag_name_by_id.get(i, str(i)),
+            key=f"tag_ath_{item['id']}",
+            label_visibility="collapsed",
+            placeholder="Select athlete(s) featured here…",
+        )
+        if st.button("💾 Save Athlete Tags", key=f"save_tag_ath_{item['id']}"):
+            to_add = set(picked) - set(tagged_ids)
+            to_remove = set(tagged_ids) - set(picked)
+            for aid in to_add:
+                tag_content_to_athlete(item['id'], aid, item['platform'])
+            for aid in to_remove:
+                untag_content(item['id'], aid)
+            st.success(f"Saved — {len(to_add)} added, {len(to_remove)} removed")
+            st.rerun()
+
+
 @st.fragment
 def render_content_item(item, display_tz):
     """Render a single content item as a fragment - reruns independently on interaction"""
+    status = effective_status(item)
+
     with st.container(border=True):
         col1, col2, col3 = st.columns([1, 3, 1])
 
         platform = item['platform']
         platform_cfg = PLATFORM_CONFIG.get(platform, {'emoji': '📺', 'name': platform})
-        status = item['status']
 
         with col1:
             if item['thumbnail_url']:
@@ -3790,31 +4142,12 @@ def render_content_item(item, display_tz):
                 if link_parts:
                     st.markdown(" • ".join(link_parts))
 
-                # Edit podcast links expander
-                with st.expander("🔗 Edit Podcast Links", expanded=False):
-                    st.caption("Update Spotify and Apple Podcast URLs for this episode")
-
-                    new_spotify = st.text_input(
-                        "Spotify URL",
-                        value=spotify_url or '',
-                        key=f"spotify_{item['id']}",
-                        placeholder="https://open.spotify.com/episode/..."
-                    )
-
-                    new_apple = st.text_input(
-                        "Apple Podcasts URL",
-                        value=apple_url or '',
-                        key=f"apple_{item['id']}",
-                        placeholder="https://podcasts.apple.com/..."
-                    )
-
-                    if st.button("💾 Save Links", key=f"save_links_{item['id']}"):
-                        update_podcast_links(item['id'], new_spotify, new_apple)
-                        st.success("✅ Podcast links updated!")
-                        st.rerun()
-
             elif platform == 'reddit':
                 st.caption(f"⬆️ {format_number(item['view_count'])} upvotes • 💬 {format_number(item['comment_count'])}")
+
+            blurb = effective_blurb(item)
+            if blurb:
+                st.caption(f"📝 {blurb}")
 
         with col3:
             # Status badge with custom styling
@@ -3833,237 +4166,51 @@ def render_content_item(item, display_tz):
 
             bcol1, bcol2 = st.columns(2)
             with bcol1:
-                if item['status'] != 'selected':
-                    if st.button("✅", key=f"sel_{item['id']}", help="Select"):
-                        update_content_status(item['id'], 'selected')
-                        clear_content_caches()
-                        st.rerun()
+                if status != 'selected':
+                    st.button("✅", key=f"sel_{item['id']}", help="Select", on_click=set_item_status, args=(item, 'selected'))
             with bcol2:
-                if item['status'] != 'rejected':
-                    if st.button("❌", key=f"rej_{item['id']}", help="Reject"):
-                        update_content_status(item['id'], 'rejected')
-                        clear_content_caches()
-                        st.rerun()
+                if status != 'rejected':
+                    st.button("❌", key=f"rej_{item['id']}", help="Reject", on_click=set_item_status, args=(item, 'rejected'))
 
-            current_cat = item['category'] or 'other'
-            cat_opts = [c[0] for c in CATEGORIES]
-            # Use session state key to track if we need to save
-            cat_key = f"cat_{item['id']}"
-            new_cat = st.selectbox(
-                "Category",
-                options=cat_opts,
-                index=cat_opts.index(current_cat) if current_cat in cat_opts else 0,
-                format_func=lambda x: dict(CATEGORIES)[x],
-                key=cat_key,
-                label_visibility="collapsed"
-            )
-            # Only save when button is clicked to avoid refresh loops
-            if st.button("💾", key=f"save_cat_{item['id']}", help="Save category"):
-                if new_cat != current_cat:
-                    update_content_category(item['id'], new_cat)
-                    clear_content_caches()
-                    st.rerun()
+            show_more = st.toggle("More", key=f"more_{item['id']}", help="Category, order, blurb editor, links, athlete tags, move to another week")
 
-            # Display order with save button to prevent refresh loops
-            current_order = item.get('display_order') or 999
-            order_col1, order_col2 = st.columns([2, 1])
-            with order_col1:
-                new_order = st.number_input(
-                    "Order",
-                    min_value=1,
-                    max_value=99,
-                    value=min(current_order, 99) if current_order < 999 else 1,
-                    key=f"order_{item['id']}",
-                    help="Lower = first",
-                    label_visibility="collapsed"
-                )
-            with order_col2:
-                if st.button("💾", key=f"save_order_{item['id']}", help="Save order"):
-                    if new_order != current_order:
-                        update_content_display_order(item['id'], new_order)
-                        clear_content_caches()
-                        st.rerun()
+        if show_more:
+            render_item_tools(item)
 
-        # Expandable section for description editing with AI blurb
-        with st.expander("✏️ Edit Description / AI Blurb", expanded=False):
-            original_desc = item.get('description') or ''
-            custom_desc = item.get('custom_description') or ''
-            ai_desc = item.get('ai_description') or ''
-            use_ai = item.get('use_ai_description') or False
 
-            st.markdown("**📄 Original Description:**")
-            if original_desc:
-                st.caption(original_desc[:300] + ('...' if len(original_desc) > 300 else ''))
-            else:
-                st.caption("_No original description available_")
+@st.fragment
+def render_review_row(item, display_tz):
+    """One compact line for fast review: select/reject in one click, blurb visible, saved instantly."""
+    status = effective_status(item)
+    platform = item['platform']
 
-            st.markdown("---")
-
-            st.markdown("**✨ AI-Generated Blurb:**")
-
-            if ai_desc:
-                st.info(ai_desc)
-            else:
-                st.caption("_No AI blurb generated yet_")
-
-            col_gen1, col_gen2 = st.columns([1, 2])
-            with col_gen1:
-                if st.button("✨ Generate AI Blurb", key=f"gen_ai_{item['id']}"):
-                    with st.spinner("Generating..."):
-                        blurb, error = generate_ai_blurb(
-                            title=item['title'],
-                            description=original_desc,
-                            platform=item['platform'],
-                            creator_name=item.get('creator_name')
-                        )
-                        if blurb:
-                            update_content_ai_description(item['id'], blurb)
-                            st.success("AI blurb generated!")
-                            st.rerun()
-                        else:
-                            st.error(error)
-
-            st.markdown("---")
-
-            st.markdown("**✏️ Custom Description (editable):**")
-            edited_desc = st.text_area(
-                "Edit description",
-                value=custom_desc if custom_desc else (ai_desc if ai_desc else ''),
-                key=f"desc_{item['id']}",
-                height=80,
-                label_visibility="collapsed",
-                placeholder="Enter a custom description or edit the AI blurb..."
-            )
-
-            if st.button("💾 Save Custom Description", key=f"save_desc_{item['id']}"):
-                update_content_custom_description(item['id'], edited_desc if edited_desc.strip() else None)
-                st.success("Custom description saved!")
-                st.rerun()
-
-            st.markdown("---")
-
-            st.markdown("**🎯 Use in Newsletter:**")
-
-            if use_ai and ai_desc:
-                current_selection = "ai"
-            elif custom_desc:
-                current_selection = "custom"
-            else:
-                current_selection = "original"
-
-            desc_options = ["original", "custom", "ai"]
-            desc_labels = {
-                "original": "📄 Original Description",
-                "custom": "✏️ Custom Description",
-                "ai": "✨ AI Blurb"
-            }
-
-            selected_desc = st.radio(
-                "Select which description to use",
-                options=desc_options,
-                index=desc_options.index(current_selection),
-                format_func=lambda x: desc_labels[x],
-                key=f"desc_choice_{item['id']}",
-                horizontal=True,
-                label_visibility="collapsed"
-            )
-
-            # Use button to save selection to avoid refresh loops
-            if st.button("💾 Save Description Choice", key=f"save_desc_choice_{item['id']}"):
-                if selected_desc != current_selection:
-                    if selected_desc == "ai":
-                        update_content_use_ai_description(item['id'], True)
-                        update_content_custom_description(item['id'], None)
-                    elif selected_desc == "custom":
-                        update_content_use_ai_description(item['id'], False)
-                    else:  # original
-                        update_content_use_ai_description(item['id'], False)
-                        update_content_custom_description(item['id'], None)
-                    st.success("Description choice saved!")
-                    st.rerun()
-
-            st.markdown("**Preview (what will appear in newsletter):**")
-            if selected_desc == "ai" and ai_desc:
-                st.success(ai_desc)
-            elif selected_desc == "custom" and custom_desc:
-                st.success(custom_desc)
-            elif selected_desc == "custom" and edited_desc:
-                st.warning(f"(Unsaved) {edited_desc}")
-            else:
-                st.success(original_desc[:200] + ('...' if len(original_desc) > 200 else '') if original_desc else "_No description_")
-
-        # Priority source button
-        creator_name = item.get('creator_name') or 'Unknown'
-        if creator_name and creator_name != 'Unknown':
-            existing_priorities = get_priority_sources(platform)
-            is_priority = any(p['source_name'].lower() == creator_name.lower() for p in existing_priorities)
-
-            if is_priority:
-                st.caption("⭐ Priority Source")
-            else:
-                if st.button(f"⭐ Add '{creator_name}' as Priority", key=f"priority_{item['id']}", help="Always check this source during discovery"):
-                    source_type = 'channel' if platform == 'youtube' else 'show' if platform == 'podcast' else 'source'
-                    source_id = item.get('creator_platform_id') if platform == 'youtube' else None
-                    add_priority_source(
-                        platform=platform,
-                        source_type=source_type,
-                        source_name=creator_name,
-                        source_id=source_id,
-                        source_url=item.get('url', ''),
-                        notes=f"Added from curation on {datetime.now().strftime('%Y-%m-%d')}"
-                    )
-                    st.success(f"✅ Added '{creator_name}' as priority source!")
-                    st.rerun()
-
-        # Move to different week
-        with st.expander("📅 Move to Week", expanded=False):
-            move_weeks = generate_week_options(num_weeks=12)
-            # Exclude the "All Time" entry
-            move_weeks = [w for w in move_weeks if w['start'] is not None]
-            move_labels = [w['label'] for w in move_weeks]
-
-            move_selection = st.selectbox(
-                "Move to",
-                options=range(len(move_weeks)),
-                format_func=lambda i: move_labels[i],
-                key=f"move_week_{item['id']}",
-                label_visibility="collapsed"
-            )
-
-            if st.button("📅 Move", key=f"move_btn_{item['id']}", use_container_width=True):
-                target_week = move_weeks[move_selection]
-                # Set published_date to the Monday of the target week
-                update_content_published_date(item['id'], target_week['start'])
-                st.success(f"Moved to {target_week['label']}")
-                st.rerun()
-
-        # Tag athletes (Phase 1) — flows this content into the tagged athletes' editions
-        with st.expander("🏷️ Tag Athletes", expanded=False):
-            tag_athletes = get_athletes_for_tagging_cached()
-            tag_name_by_id = {a['id']: a['name'] for a in tag_athletes}
-            item_tags = get_tags_for_content([item['id']]).get(item['id'], [])
-            tagged_ids = [t['athlete_id'] for t in item_tags if t['status'] == 'selected']
-            tag_suggested = [t['name'] for t in item_tags if t['status'] == 'suggested']
-            if tag_suggested:
-                st.caption("💡 Suggested: " + ", ".join(tag_suggested) + " — selecting below confirms them.")
-            picked = st.multiselect(
-                "Athletes featured in this content",
-                options=[a['id'] for a in tag_athletes],
-                default=tagged_ids,
-                format_func=lambda i: tag_name_by_id.get(i, str(i)),
-                key=f"tag_ath_{item['id']}",
-                label_visibility="collapsed",
-                placeholder="Select athlete(s) featured here…",
-            )
-            if st.button("💾 Save Athlete Tags", key=f"save_tag_ath_{item['id']}"):
-                to_add = set(picked) - set(tagged_ids)
-                to_remove = set(tagged_ids) - set(picked)
-                for aid in to_add:
-                    tag_content_to_athlete(item['id'], aid, item['platform'])
-                for aid in to_remove:
-                    untag_content(item['id'], aid)
-                st.success(f"Saved — {len(to_add)} added, {len(to_remove)} removed")
-                st.rerun()
+    sel_col, rej_col, body_col = st.columns([0.6, 0.6, 12], vertical_alignment="center")
+    with sel_col:
+        st.button("✅", key=f"rv_sel_{item['id']}", type="primary" if status == 'selected' else "secondary",
+                  help="Select (click again to clear)", on_click=toggle_item_status, args=(item, 'selected'))
+    with rej_col:
+        st.button("❌", key=f"rv_rej_{item['id']}", type="primary" if status == 'rejected' else "secondary",
+                  help="Reject (click again to clear)", on_click=toggle_item_status, args=(item, 'rejected'))
+    with body_col:
+        meta = [item['creator_name'] or 'Unknown']
+        if platform in ('youtube', 'podcast'):
+            duration_str = format_duration(item.get('duration_seconds'))
+            if duration_str:
+                meta.append(f"⏱️ {duration_str}")
+        if platform == 'youtube':
+            meta.append(f"👁️ {format_number(item['view_count'])}")
+        elif platform == 'reddit':
+            meta.append(f"⬆️ {format_number(item['view_count'])} • 💬 {format_number(item['comment_count'])}")
+        pub_date = item.get('published_date')
+        if pub_date:
+            meta.append(format_date_local(pub_date, display_tz))
+        if item.get('selection_method') == 'yolo':
+            meta.append("🤖")
+        st.markdown(f"**[{item['title'][:90]}{'...' if len(item['title']) > 90 else ''}]({item['url']})**  \n"
+                    f"<span style='color:#9aa0a6;font-size:0.85rem'>{escape(' • '.join(meta))}</span>", unsafe_allow_html=True)
+        blurb = effective_blurb(item)
+        if blurb:
+            st.caption(blurb)
 
 
 # ============================================================================
@@ -4491,32 +4638,9 @@ def main():
         # Week Selector
         st.markdown("### 📅 Select Week")
         
-        # Generate list of weeks (current week + past 4 weeks)
-        today = datetime.now()
-        weeks = []
-        for i in range(5):
-            # Calculate Monday of that week
-            days_since_monday = today.weekday()
-            week_start = today - timedelta(days=days_since_monday + (i * 7))
-            week_end = week_start + timedelta(days=6)
-            
-            # Format label
-            if week_start.month == week_end.month:
-                label = f"{week_start.strftime('%B')} {week_start.day}-{week_end.day}, {week_end.year}"
-            elif week_start.year == week_end.year:
-                label = f"{week_start.strftime('%B')} {week_start.day} - {week_end.strftime('%B')} {week_end.day}, {week_end.year}"
-            else:
-                label = f"{week_start.strftime('%B')} {week_start.day}, {week_start.year} - {week_end.strftime('%B')} {week_end.day}, {week_end.year}"
-            
-            if i == 0:
-                label = f"📍 Current Week: {label}"
-            
-            weeks.append({
-                'label': label,
-                'start': week_start.date(),
-                'end': week_end.date()
-            })
-        
+        # Same week list as Curation/Generate (minus "All Time") so the shared week index lines up across pages
+        weeks = [w for w in generate_week_options() if w['start'] is not None]
+
         current_idx = min(st.session_state['selected_week_idx'], len(weeks) - 1)
         selected_week = st.selectbox(
             "Week to discover content for",
@@ -4976,13 +5100,17 @@ def main():
         # Batch AI Blurb Generation
         st.markdown("### ✨ AI Blurb Generation")
         
-        # Get selected content for counts - use cached version
-        selected_content = get_content_cached(status_filter='selected', week_start=week_start_date, week_end=week_end_date)
+        # One cached query for the whole week; the blurb panel and the filtered list below are both derived from it
+        week_content = get_week_content(week_start_date, week_end_date)
+        if week_content is None:  # "All Time" has no single week to fetch
+            selected_content = get_content_cached(status_filter='selected', week_start=week_start_date, week_end=week_end_date)
+        else:
+            selected_content = [c for c in week_content if c['status'] == 'selected']
         needs_blurb = [c for c in selected_content if not c.get('ai_description')]
         has_blurb = [c for c in selected_content if c.get('ai_description')]
-        
+
         col_ai1, col_ai2 = st.columns([1, 2])
-        
+
         with col_ai1:
             st.caption(f"📊 **{len(selected_content)}** selected items")
             st.caption(f"   • {len(needs_blurb)} need blurbs")
@@ -5056,8 +5184,14 @@ def main():
         st.markdown("---")
         
         # Filters
+        review_mode = st.toggle(
+            "⚡ Review mode",
+            value=True,
+            key="curation_review_mode",
+            help="Compact list: select or reject in one click, blurbs visible. Switch off for full cards (blurb editor, category, order, athlete tags)."
+        )
         col1, col2, col3 = st.columns([2, 2, 1])
-        
+
         with col1:
             platform_options = ['all'] + list(PLATFORM_CONFIG.keys())
             platform_filter = st.selectbox(
@@ -5065,26 +5199,43 @@ def main():
                 options=platform_options,
                 format_func=lambda x: "📺 All Platforms" if x == 'all' else f"{PLATFORM_CONFIG[x]['emoji']} {PLATFORM_CONFIG[x]['name']}"
             )
-        
+
         with col2:
             status_filter = st.selectbox(
                 "Status",
                 options=['discovered', 'selected', 'rejected', 'all'],
+                index=3 if review_mode else 0,  # review mode shows everything, selected first
                 format_func=lambda x: {'discovered': '📥 To Review', 'selected': '✅ Selected', 'rejected': '❌ Rejected', 'all': '📋 All'}[x]
             )
-        
+
         with col3:
-            if st.button("🔄 Refresh"):
-                clear_content_caches()
-                st.rerun()
-        
+            st.button("🔄 Refresh", on_click=clear_content_caches)
+
         st.markdown("---")
 
-        # Content List - use cached version for faster loading
-        content = get_content_cached(platform_filter, status_filter, week_start_date, week_end_date)
+        # Content List - filtered from the week's cached data, so changing filters needs no database call
+        if week_content is None:
+            content = get_content_cached(platform_filter, status_filter, week_start_date, week_end_date)
+        else:
+            content = [c for c in week_content
+                       if (platform_filter == 'all' or c['platform'] == platform_filter)
+                       and (status_filter == 'all' or c['status'] == status_filter)]
 
         if not content:
             st.info("No content found. Run discovery scripts or adjust filters.")
+        elif review_mode and week_content is not None:
+            display_tz = st.session_state['newsletter_config'].get('display_timezone', 'US/Pacific')
+            status_rank = {'selected': 0, 'discovered': 1, 'rejected': 2}
+            for platform, cfg in PLATFORM_CONFIG.items():
+                platform_rows = [c for c in content if c['platform'] == platform]
+                if not platform_rows:
+                    continue
+                # Stable sort keeps the database order (display order, then views) within each status
+                platform_rows.sort(key=lambda c: status_rank.get(c['status'], 3))
+                picked = sum(1 for c in platform_rows if c['status'] == 'selected')
+                st.markdown(f"#### {cfg['emoji']} {cfg['name']} · {picked} selected of {len(platform_rows)}")
+                for item in platform_rows:
+                    render_review_row(item, display_tz)
         else:
             # Initialize pagination state
             pagination_key = f"curation_page_{platform_filter}_{status_filter}"
@@ -5108,27 +5259,23 @@ def main():
             pag_col1, pag_col2, pag_col3, pag_col4, pag_col5 = st.columns([1, 1, 2, 1, 1])
 
             with pag_col1:
-                if st.button("⏮️ First", disabled=current_page == 0, key="pag_first_top"):
-                    st.session_state[pagination_key] = 0
-                    st.rerun()
+                st.button("⏮️ First", disabled=current_page == 0, key="pag_first_top",
+                          on_click=_set_session_value, args=(pagination_key, 0))
 
             with pag_col2:
-                if st.button("◀️ Prev", disabled=current_page == 0, key="pag_prev_top"):
-                    st.session_state[pagination_key] = current_page - 1
-                    st.rerun()
+                st.button("◀️ Prev", disabled=current_page == 0, key="pag_prev_top",
+                          on_click=_set_session_value, args=(pagination_key, current_page - 1))
 
             with pag_col3:
                 st.markdown(f"<div style='text-align: center; padding-top: 5px;'><b>Page {current_page + 1} of {total_pages}</b> ({start_idx + 1}-{end_idx} of {total_items})</div>", unsafe_allow_html=True)
 
             with pag_col4:
-                if st.button("Next ▶️", disabled=current_page >= total_pages - 1, key="pag_next_top"):
-                    st.session_state[pagination_key] = current_page + 1
-                    st.rerun()
+                st.button("Next ▶️", disabled=current_page >= total_pages - 1, key="pag_next_top",
+                          on_click=_set_session_value, args=(pagination_key, current_page + 1))
 
             with pag_col5:
-                if st.button("Last ⏭️", disabled=current_page >= total_pages - 1, key="pag_last_top"):
-                    st.session_state[pagination_key] = total_pages - 1
-                    st.rerun()
+                st.button("Last ⏭️", disabled=current_page >= total_pages - 1, key="pag_last_top",
+                          on_click=_set_session_value, args=(pagination_key, total_pages - 1))
 
             st.markdown("---")
 
@@ -5145,27 +5292,23 @@ def main():
                 pag_col1b, pag_col2b, pag_col3b, pag_col4b, pag_col5b = st.columns([1, 1, 2, 1, 1])
 
                 with pag_col1b:
-                    if st.button("⏮️ First", disabled=current_page == 0, key="pag_first_bottom"):
-                        st.session_state[pagination_key] = 0
-                        st.rerun()
+                    st.button("⏮️ First", disabled=current_page == 0, key="pag_first_bottom",
+                              on_click=_set_session_value, args=(pagination_key, 0))
 
                 with pag_col2b:
-                    if st.button("◀️ Prev", disabled=current_page == 0, key="pag_prev_bottom"):
-                        st.session_state[pagination_key] = current_page - 1
-                        st.rerun()
+                    st.button("◀️ Prev", disabled=current_page == 0, key="pag_prev_bottom",
+                              on_click=_set_session_value, args=(pagination_key, current_page - 1))
 
                 with pag_col3b:
                     st.markdown(f"<div style='text-align: center; padding-top: 5px;'><b>Page {current_page + 1} of {total_pages}</b></div>", unsafe_allow_html=True)
 
                 with pag_col4b:
-                    if st.button("Next ▶️", disabled=current_page >= total_pages - 1, key="pag_next_bottom"):
-                        st.session_state[pagination_key] = current_page + 1
-                        st.rerun()
+                    st.button("Next ▶️", disabled=current_page >= total_pages - 1, key="pag_next_bottom",
+                              on_click=_set_session_value, args=(pagination_key, current_page + 1))
 
                 with pag_col5b:
-                    if st.button("Last ⏭️", disabled=current_page >= total_pages - 1, key="pag_last_bottom"):
-                        st.session_state[pagination_key] = total_pages - 1
-                        st.rerun()
+                    st.button("Last ⏭️", disabled=current_page >= total_pages - 1, key="pag_last_bottom",
+                              on_click=_set_session_value, args=(pagination_key, total_pages - 1))
 
         # Manual Content Entry Section
         st.markdown("---")
