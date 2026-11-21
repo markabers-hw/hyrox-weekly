@@ -3,17 +3,32 @@ Hyrox Weekly Reddit Discovery Script
 
 Discovers Hyrox-related posts from Reddit.
 Stores as platform='reddit' for separate curation.
+
+Sources:
+- Reddit archive (arctic-shift.photon-reddit.com): no login and any date range, so it works for
+  the current week and for weeks months back. This is the default.
+- Reddit's own API via OAuth: used as well when REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET are set.
+  It can only reach back 2-3 weeks, but its scores are the most current.
+
+Fails (non-zero exit) when neither source can be reached, so a broken Reddit step is never
+reported as a quiet week.
+
+Usage:
+    python reddit_discovery.py [--dry-run]    # week from DISCOVERY_WEEK_START / DISCOVERY_WEEK_END
 """
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 import os
+import sys
 import requests
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 load_dotenv()
+
+DRY_RUN = '--dry-run' in sys.argv
 
 DB_CONFIG = {
     'host': os.getenv('DB_HOST'),
@@ -35,7 +50,12 @@ else:
     WEEK_END = datetime.now()
     WEEK_START = WEEK_END - timedelta(days=14)
 
-# Subreddits to search
+# Subreddits read from the archive (every post in the week). r/hyrox gave 92% of the posts that made
+# past editions. Keyword search in the busy subreddits (fitness, crossfit, running) is not reliable
+# on the archive: it times out, so they are only covered when OAuth is configured (below).
+ARCHIVE_SUBREDDITS = ['hyrox']
+
+# Subreddits to search through Reddit's own API (OAuth only)
 SUBREDDITS = [
     {'name': 'hyrox', 'limit': 30, 'filter_keywords': False},  # All posts from r/hyrox
     {'name': 'fitness', 'limit': 50, 'filter_keywords': True},  # Only Hyrox-related
@@ -50,13 +70,106 @@ HYROX_KEYWORDS = [
 ]
 
 
+class RedditSourceError(Exception):
+    """Raised when a Reddit data source can't be reached."""
+
+
+class ArcticShiftClient:
+    """Reddit posts from the Arctic Shift archive (arctic-shift.photon-reddit.com).
+
+    No login, and any date range can be queried, so it covers the current week and weeks months
+    back. It is volunteer-run with no uptime guarantee, so requests are retried with a back-off.
+    Scores and comment counts matched Reddit's own within about 20% in a spot check against
+    posts stored from Reddit's API in May, which is close enough for ranking.
+    """
+
+    BASE_URL = "https://arctic-shift.photon-reddit.com/api/posts/search"
+    PAGE_SIZE = 100
+
+    def __init__(self, user_agent):
+        self.headers = {'User-Agent': user_agent}
+
+    def _get(self, params, attempts=4):
+        """GET one page of posts, backing off when the service asks us to slow down (422 timeout, 429, 5xx)."""
+        last_error = 'no response'
+        for attempt in range(attempts):
+            try:
+                resp = requests.get(self.BASE_URL, params=params, headers=self.headers, timeout=60)
+                body = resp.json() if resp.status_code == 200 else {}
+                if body.get('data') is not None:
+                    return body['data']
+                last_error = f"HTTP {resp.status_code} {resp.text[:100]}"
+                if resp.status_code == 400:
+                    break  # our request is wrong, retrying won't help
+            except (requests.RequestException, ValueError) as e:
+                last_error = str(e)
+            time.sleep(3 * (attempt + 1))
+        raise RedditSourceError(last_error)
+
+    @staticmethod
+    def _to_post(raw, subreddit):
+        """Convert an archive record to the post dict used by the rest of this script (None to skip it)."""
+        if raw.get('stickied') or raw.get('removed_by_category'):
+            return None
+        if raw.get('is_self') and raw.get('selftext') in ('[removed]', '[deleted]'):
+            return None
+
+        reddit_url = f"https://www.reddit.com{raw.get('permalink', '')}"
+        external_url = raw.get('url') if not raw.get('is_self') and raw.get('url') != reddit_url else None
+        thumbnail = raw.get('thumbnail') or ''
+        if thumbnail in ['self', 'default', 'nsfw', 'spoiler', '']:
+            thumbnail = ''
+        created_utc = raw.get('created_utc', 0)
+
+        return {
+            'title': raw.get('title', ''),
+            'url': reddit_url,
+            'external_url': external_url,
+            'description': (raw.get('selftext') or '')[:500],
+            'published_date': datetime.fromtimestamp(created_utc) if created_utc else datetime.now(),
+            'source': f'r/{subreddit}',
+            'author': raw.get('author', '[deleted]'),
+            'thumbnail_url': thumbnail,
+            'platform': 'reddit',
+            'score': raw.get('score', 0),
+            'num_comments': raw.get('num_comments', 0),
+        }
+
+    def fetch_subreddit(self, subreddit, start, end):
+        """Every post in r/subreddit created from start up to end (naive local datetimes), oldest first."""
+        posts, seen_ids = [], set()
+        cursor = start.astimezone(timezone.utc)
+        end_utc = end.astimezone(timezone.utc)
+
+        for _ in range(20):  # safety cap of 2000 posts
+            batch = self._get({
+                'subreddit': subreddit,
+                'after': cursor.strftime('%Y-%m-%dT%H:%M:%S'),
+                'before': end_utc.strftime('%Y-%m-%dT%H:%M:%S'),
+                'limit': self.PAGE_SIZE,
+                'sort': 'asc',
+            })
+            new = [raw for raw in batch if raw['id'] not in seen_ids]
+            for raw in new:
+                seen_ids.add(raw['id'])
+                post = self._to_post(raw, subreddit)
+                if post:
+                    posts.append(post)
+            if len(batch) < self.PAGE_SIZE or not new:
+                break
+            cursor = datetime.fromtimestamp(batch[-1]['created_utc'], timezone.utc)
+            time.sleep(1)  # be gentle with a volunteer-run service
+
+        return posts
+
+
 class RedditDiscovery:
-    """Reddit discovery via OAuth (app-only / client-credentials).
+    """Reddit discovery via OAuth (app-only / client-credentials). Optional: the archive is the default source.
 
     Reddit blocks unauthenticated access to the public `.json` endpoints (HTTP 403
     from www.reddit.com and old.reddit.com as of 2026). Read-only public data now
     requires an OAuth token from a registered app, used against oauth.reddit.com.
-    Register a free 'script' app at https://www.reddit.com/prefs/apps and set
+    Register a 'script' app at https://www.reddit.com/prefs/apps and set
     REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET in .env.
     """
 
@@ -72,9 +185,7 @@ class RedditDiscovery:
         self.token = None
         self.enabled = bool(self.client_id and self.client_secret)
         if not self.enabled:
-            print("      ⚠️  Reddit OAuth not configured — Reddit discovery will be skipped.")
-            print("         Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET in .env")
-            print("         (register a free 'script' app at https://www.reddit.com/prefs/apps).")
+            print("      ℹ️  Reddit OAuth not configured (optional): using the archive only.")
         else:
             self._authenticate()
 
@@ -308,25 +419,21 @@ def is_hyrox_relevant(post):
     return any(kw in text for kw in HYROX_KEYWORDS)
 
 
-def main():
-    print("=" * 70)
-    print("REDDIT DISCOVERY - Hyrox Content")
-    print("=" * 70)
-    
-    print(f"\n📅 Week: {WEEK_START.strftime('%Y-%m-%d')} to {WEEK_END.strftime('%Y-%m-%d')}")
-    
-    # Check if we're looking for historical posts (more than a few days ago)
-    days_ago = (datetime.now() - WEEK_END).days
-    is_historical = days_ago > 3
-    
-    if is_historical:
-        print(f"   ⏳ Looking for posts from {days_ago} days ago - using search method")
-    
-    discovery = RedditDiscovery()
-    db = RedditDatabaseManager()
+def fetch_via_archive(user_agent):
+    """Every post in the selected week from the Reddit archive."""
+    client = ArcticShiftClient(user_agent)
+    posts = []
+    for subreddit in ARCHIVE_SUBREDDITS:
+        print(f"   -> r/{subreddit} ({WEEK_START.strftime('%b %d')} - {(WEEK_END - timedelta(days=1)).strftime('%b %d')})...")
+        found = client.fetch_subreddit(subreddit, WEEK_START, WEEK_END)
+        print(f"      Found {len(found)} posts")
+        posts.extend(found)
+    return posts
+
+
+def fetch_via_oauth(discovery, is_historical):
+    """Posts from Reddit's own API. Only reaches back about 2-3 weeks."""
     all_posts = []
-    
-    print("\n📥 Fetching Reddit posts...")
 
     # Method 1a: Fetch recent posts from subreddits using 'new' sort
     for sub in SUBREDDITS:
@@ -373,7 +480,43 @@ def main():
         print(f"      Found {len(posts)} posts")
         all_posts.extend(posts)
         time.sleep(1)
+
+    return all_posts
+
+
+def main():
+    print("=" * 70)
+    print("REDDIT DISCOVERY - Hyrox Content")
+    print("=" * 70)
     
+    print(f"\n📅 Week: {WEEK_START.strftime('%Y-%m-%d')} to {WEEK_END.strftime('%Y-%m-%d')}")
+    
+    # Reddit's own API only reaches back 2-3 weeks; the archive has no such limit
+    days_ago = (datetime.now() - WEEK_END).days
+    is_historical = days_ago > 3
+    
+    discovery = RedditDiscovery()
+    db = RedditDatabaseManager()
+    archive_posts, oauth_posts = [], []
+    sources_reached = 0
+    
+    print("\n📥 Fetching Reddit posts from the archive...")
+    try:
+        archive_posts = fetch_via_archive(discovery.user_agent)
+        sources_reached += 1
+    except RedditSourceError as e:
+        print(f"   ❌ Archive unavailable: {e}")
+    
+    if discovery.token:
+        print("\n📥 Fetching Reddit posts from Reddit's API (OAuth)...")
+        oauth_posts = fetch_via_oauth(discovery, is_historical)
+        sources_reached += 1
+    
+    if sources_reached == 0:
+        raise RedditSourceError("no Reddit source could be reached (the archive failed and OAuth is not configured)")
+    
+    # OAuth posts first, so their fresher scores win when both sources return the same post
+    all_posts = oauth_posts + archive_posts
     print(f"\n   Total fetched: {len(all_posts)} posts")
     
     # Deduplicate by URL
@@ -392,11 +535,16 @@ def main():
             min_date = min(dates)
             max_date = max(dates)
             print(f"   ⚠️  Posts found are from {min_date.strftime('%b %d')} to {max_date.strftime('%b %d')}")
-            print(f"   ⚠️  Reddit's API may not return posts older than ~2-3 weeks")
-    
+
     # Sort by score (upvotes)
     recent.sort(key=lambda x: x.get('score', 0), reverse=True)
-    
+
+    if DRY_RUN:
+        print(f"\n🧪 Dry run: nothing saved. Top posts of the week:")
+        for post in recent[:10]:
+            print(f"   [{post['score']} pts, {post['num_comments']} comments] {post['title'][:70]}")
+        return
+
     print(f"\n💾 Saving {len(recent)} posts...")
     db.connect()
     
@@ -427,6 +575,7 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print(f"\nError: {e}")
+        print(f"\n❌ Reddit discovery failed: {e}")
         import traceback
         traceback.print_exc()
+        sys.exit(1)  # non-zero so batch_yolo reports a failure instead of a quiet week

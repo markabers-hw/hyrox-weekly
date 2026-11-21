@@ -20,11 +20,12 @@ from datetime import datetime, timedelta, timezone
 
 import batch_yolo as by
 
-PLATFORMS = ('youtube', 'podcast', 'article')
+PLATFORMS = ('youtube', 'podcast', 'article', 'reddit')
 SCRIPTS = {
     'youtube': 'youtube_discovery.py',
     'podcast': 'podcast_discovery.py',
     'article': 'article_discovery.py',
+    'reddit': 'reddit_discovery.py',
 }
 
 
@@ -47,8 +48,14 @@ def select_top(platform: str, ws: str, end_date: str) -> int:
     content = by.supabase_get('content_items',
         f'platform=eq.{platform}&status=eq.discovered'
         f'&published_date=gte.{ws}&published_date=lt.{end_date}'
-        f'&select=id,view_count,creators(name)'
+        f'&select=id,view_count,comment_count,creators(name)'
         f'&order=view_count.desc.nullslast') or []
+
+    if platform == 'reddit':
+        # Same bar as auto_curate_yolo: only well-discussed or well-upvoted threads
+        content = [c for c in content
+                   if (c.get('comment_count') or 0) >= by.YOLO_CONFIG['yolo_reddit_min_comments']
+                   or (c.get('view_count') or 0) >= by.YOLO_CONFIG['yolo_reddit_min_upvotes']]
 
     def sort_key(item: dict) -> tuple[int, int]:
         creator = ((item.get('creators') or {}).get('name') or '').lower()
