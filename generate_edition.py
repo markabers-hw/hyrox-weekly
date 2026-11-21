@@ -301,6 +301,15 @@ def get_next_edition_number():
     return 1
 
 
+def day_after(date_str: str) -> str:
+    """The day after a YYYY-MM-DD date, as YYYY-MM-DD.
+
+    published_date has a time of day, so "on or before Sunday" must be written as "before Monday".
+    A filter like published_date<=2026-07-12 stops at midnight and drops everything published later that Sunday.
+    """
+    return (datetime.strptime(date_str, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+
+
 def create_edition_record(edition_number, week_start_str, week_end_str):
     """Create edition record in DB and mark content as published.
 
@@ -316,7 +325,7 @@ def create_edition_record(edition_number, week_start_str, week_end_str):
     params = (
         f"status=eq.selected"
         f"&published_date=gte.{week_start_str}"
-        f"&published_date=lte.{week_end_str}"
+        f"&published_date=lt.{day_after(week_end_str)}"
         f"&select=id"
     )
     content = supabase_get('content_items', params)
@@ -359,7 +368,7 @@ def main():
     params = (
         f"status=eq.selected"
         f"&published_date=gte.{args.week_start}"
-        f"&published_date=lte.{args.week_end}"
+        f"&published_date=lt.{day_after(args.week_end)}"
         f"&order=display_order.asc"
     )
     content = supabase_get('content_items', params)
