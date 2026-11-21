@@ -31,7 +31,7 @@ YOLO_DEFAULTS = {
     'yolo_max_youtube': 8,
     'yolo_max_podcast': 8,
     'yolo_max_article': 8,
-    'yolo_max_reddit': 9,
+    'yolo_max_reddit': 6,
     'yolo_reddit_min_comments': 20,
     'yolo_reddit_min_upvotes': 20,
 }
@@ -223,6 +223,9 @@ def auto_curate_yolo(week_start, week_end):
         def sort_key(item):
             creator = (item.get('creators', {}).get('name') or '').lower() if item.get('creators') else ''
             is_priority = creator in priority_names
+            if platform == 'reddit':
+                # Discussions rank by how many comments they drew, then by upvotes
+                return (0 if is_priority else 1, -(item.get('comment_count') or 0), -(item.get('view_count') or 0))
             return (0 if is_priority else 1, -(item.get('view_count') or 0))
 
         content.sort(key=sort_key)

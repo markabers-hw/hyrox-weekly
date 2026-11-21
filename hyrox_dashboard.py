@@ -720,7 +720,7 @@ def get_newsletter_settings():
         'yolo_max_youtube': '8',
         'yolo_max_podcast': '8',
         'yolo_max_article': '8',
-        'yolo_max_reddit': '9',
+        'yolo_max_reddit': '6',
         'yolo_reddit_min_comments': '20',
         'yolo_reddit_min_upvotes': '20',
     }
@@ -853,6 +853,19 @@ def _get_content_impl(platform_filter='all', status_filter='discovered', week_st
     return content
 
 
+def order_reddit_by_comments(rows):
+    """Return rows with the Reddit ones ordered by display order, then comments, then upvotes.
+
+    The database orders by upvotes (view_count); for discussions, comments are the better signal.
+    Other platforms keep their position and order.
+    """
+    reddit = sorted((c for c in rows if c['platform'] == 'reddit'),
+                    key=lambda c: (c.get('display_order') is None, c.get('display_order') or 0,
+                                   -(c.get('comment_count') or 0), -(c.get('view_count') or 0)))
+    ordered = iter(reddit)
+    return [next(ordered) if c['platform'] == 'reddit' else c for c in rows]
+
+
 def get_week_content(week_start, week_end):
     """Every item for the week in one cached query, or None for "All Time".
 
@@ -860,7 +873,7 @@ def get_week_content(week_start, week_end):
     """
     if not (week_start and week_end):
         return None
-    return get_content_cached('all', 'all', week_start, week_end)
+    return order_reddit_by_comments(get_content_cached('all', 'all', week_start, week_end))
 
 
 def clear_content_caches():
@@ -1964,7 +1977,7 @@ def auto_curate_yolo(week_start, week_end, config):
         'youtube': int(config.get('yolo_max_youtube', 8)),
         'podcast': int(config.get('yolo_max_podcast', 8)),
         'article': int(config.get('yolo_max_article', 8)),
-        'reddit': int(config.get('yolo_max_reddit', 9)),
+        'reddit': int(config.get('yolo_max_reddit', 6)),
     }
 
     reddit_min_comments = int(config.get('yolo_reddit_min_comments', 20))
@@ -1982,10 +1995,12 @@ def auto_curate_yolo(week_start, week_end, config):
                       if (c.get('comment_count', 0) or 0) >= reddit_min_comments
                       or (c.get('view_count', 0) or 0) >= reddit_min_upvotes]
 
-        # Sort: priority sources first, then by view_count
+        # Sort: priority sources first, then by view_count (Reddit: by comments, then upvotes)
         def sort_key(item):
             creator = (item.get('creators', {}).get('name') or '').lower() if item.get('creators') else ''
             is_priority = creator in priority_names
+            if platform == 'reddit':
+                return (0 if is_priority else 1, -(item.get('comment_count') or 0), -(item.get('view_count') or 0))
             return (0 if is_priority else 1, -(item.get('view_count') or 0))
 
         content.sort(key=sort_key)
@@ -4754,9 +4769,9 @@ def main():
                 f"**Will auto-select:** {config.get('yolo_max_youtube', 8)} videos, "
                 f"{config.get('yolo_max_podcast', 8)} podcasts, "
                 f"{config.get('yolo_max_article', 8)} articles, "
-                f"{config.get('yolo_max_reddit', 9)} Reddit threads"
+                f"{config.get('yolo_max_reddit', 6)} Reddit threads"
             )
-            st.caption(f"Priority sources selected first • Reddit filtered by {config.get('yolo_reddit_min_comments', 20)}+ comments or {config.get('yolo_reddit_min_upvotes', 20)}+ upvotes")
+            st.caption(f"Priority sources selected first • Reddit ranked by comments, filtered by {config.get('yolo_reddit_min_comments', 20)}+ comments or {config.get('yolo_reddit_min_upvotes', 20)}+ upvotes")
 
         with yolo_col2:
             if st.button("🚀 YOLO!", type="primary", use_container_width=True, key="yolo_button"):
@@ -5300,7 +5315,7 @@ def main():
 
         # Content List - filtered from the week's cached data, so changing filters needs no database call
         if week_content is None:
-            content = get_content_cached(platform_filter, status_filter, week_start_date, week_end_date)
+            content = order_reddit_by_comments(get_content_cached(platform_filter, status_filter, week_start_date, week_end_date))
         else:
             content = [c for c in week_content
                        if (platform_filter == 'all' or c['platform'] == platform_filter)
@@ -8312,7 +8327,7 @@ SUPABASE_SERVICE_KEY=your_service_key_here
             config['yolo_max_reddit'] = st.number_input(
                 "Max Reddit threads",
                 min_value=1, max_value=20,
-                value=int(config.get('yolo_max_reddit', 9)),
+                value=int(config.get('yolo_max_reddit', 6)),
                 help="Maximum Reddit threads to auto-select"
             )
             config['yolo_max_reddit'] = str(config['yolo_max_reddit'])

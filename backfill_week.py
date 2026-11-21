@@ -57,8 +57,11 @@ def select_top(platform: str, ws: str, end_date: str) -> int:
                    if (c.get('comment_count') or 0) >= by.YOLO_CONFIG['yolo_reddit_min_comments']
                    or (c.get('view_count') or 0) >= by.YOLO_CONFIG['yolo_reddit_min_upvotes']]
 
-    def sort_key(item: dict) -> tuple[int, int]:
+    def sort_key(item: dict) -> tuple:
         creator = ((item.get('creators') or {}).get('name') or '').lower()
+        if platform == 'reddit':
+            # Discussions rank by how many comments they drew, then by upvotes
+            return (0 if creator in priority_names else 1, -(item.get('comment_count') or 0), -(item.get('view_count') or 0))
         return (0 if creator in priority_names else 1, -(item.get('view_count') or 0))
 
     content.sort(key=sort_key)
