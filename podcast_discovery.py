@@ -19,6 +19,9 @@ import os
 import requests
 import time
 import base64
+import difflib
+import re
+from html import unescape as html_unescape
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
@@ -103,6 +106,14 @@ def fetch_episode_image_from_url(url):
     return None
 
 
+# Podcasts whose show is named differently on Spotify than in Apple Podcasts / the feed (lowercase letters and
+# digits, single spaces -> the show name to look for on Spotify). Add a line here if a show's links or artwork
+# come out wrong or missing.
+SPOTIFY_SHOW_NAMES = {
+    'fitness racing podcast': 'UKHXR',
+}
+
+
 class SpotifyAPI:
     """Helper class for Spotify API interactions.
     
@@ -117,6 +128,8 @@ class SpotifyAPI:
         self.has_credentials = bool(SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET)
         self.enabled = True  # Always enabled now with anonymous fallback
         self.using_anonymous = False
+        self._show_cache = {}     # podcast name -> matching Spotify show (or None)
+        self._episode_cache = {}  # show id -> {'items': episodes newest first, 'done': bool}
         
         if self.has_credentials:
             print("   🎵 Spotify API credentials found - will fetch follower counts")
@@ -271,57 +284,31 @@ class SpotifyAPI:
         return self.get_anonymous_token()
     
     def search_show(self, show_name):
-        """Search for a podcast show on Spotify and return its info including followers."""
-        token = self.get_access_token()
-        if not token:
-            return None
-        
-        try:
-            # Search for the show
-            # Get market from environment (set by dashboard) or default to empty
-            spotify_market = os.getenv('PODCAST_COUNTRY', '')
-            
-            params = {
-                'q': show_name,
-                'type': 'show',
-                'limit': 1,
-            }
-            
-            # Only add market if specified
-            if spotify_market:
-                params['market'] = spotify_market
-            
-            response = requests.get(
-                'https://api.spotify.com/v1/search',
-                headers={'Authorization': f'Bearer {token}'},
-                params=params,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                shows = data.get('shows', {}).get('items', [])
-                
-                if shows:
-                    show = shows[0]
-                    return {
-                        'spotify_id': show.get('id'),
-                        'name': show.get('name'),
-                        'followers': show.get('total_episodes', 0),  # Shows don't expose followers directly in search
-                        'spotify_url': show.get('external_urls', {}).get('spotify'),
-                        'image_url': show['images'][0]['url'] if show.get('images') else None
-                    }
-            elif response.status_code == 401:
-                # Token expired or invalid, clear it and retry once
-                self.access_token = None
-                self.token_expires = None
-                return self.search_show(show_name)
-            
-            return None
-        except Exception as e:
-            print(f"   ⚠️ Spotify search error: {e}")
-            return None
-    
+        """Find a podcast's show on Spotify and return its info, or None when no result is the same show.
+
+        Spotify's search ranks loosely (searching "Fitness Racing Podcast" lists RMR Training Podcast first), so a
+        result is only accepted when its name matches. Shows named differently on Spotify are listed in
+        SPOTIFY_SHOW_NAMES.
+        """
+        spotify_name = SPOTIFY_SHOW_NAMES.get(self._norm(show_name), show_name)
+        params = {'q': spotify_name, 'type': 'show', 'limit': 5}
+        # Only add market if specified (set by the dashboard)
+        spotify_market = os.getenv('PODCAST_COUNTRY', '')
+        if spotify_market:
+            params['market'] = spotify_market
+
+        data = self._api_get('search', params)
+        for show in (data or {}).get('shows', {}).get('items', []):
+            if show and self._same_show(show.get('name'), spotify_name):
+                return {
+                    'spotify_id': show.get('id'),
+                    'name': show.get('name'),
+                    'followers': show.get('total_episodes', 0),  # Shows don't expose followers directly in search
+                    'spotify_url': show.get('external_urls', {}).get('spotify'),
+                    'image_url': show['images'][0]['url'] if show.get('images') else None
+                }
+        return None
+
     def get_show_details(self, show_id):
         """Get detailed show info including follower count."""
         if not show_id:
@@ -368,95 +355,109 @@ class SpotifyAPI:
             print(f"   ⚠️ Spotify show details error: {e}")
             return None
     
-    def search_episode(self, episode_title, show_name=None):
-        """Search for a specific podcast episode on Spotify and return its direct URL.
-        
-        Args:
-            episode_title: The title of the episode
-            show_name: Optional show name to narrow search
-            
-        Returns:
-            dict with 'episode_url' and 'episode_id' or None if not found
-        """
-        token = self.get_access_token()
-        if not token:
-            return None
-        
-        try:
-            # Build search query - include show name if provided for better results
-            if show_name:
-                # Clean up titles for better search
-                clean_episode = episode_title.replace('#', '').replace('|', ' ').replace(':', ' ')[:60]
-                clean_show = show_name.replace('#', '').replace('|', ' ').replace(':', ' ')[:40]
-                search_query = f"{clean_episode} {clean_show}"
-            else:
-                search_query = episode_title[:80]
-            
-            # Get market from environment
-            spotify_market = os.getenv('PODCAST_COUNTRY', '')
-            
-            params = {
-                'q': search_query,
-                'type': 'episode',
-                'limit': 5,  # Get a few results to find best match
-            }
-            
-            if spotify_market:
-                params['market'] = spotify_market
-            
-            response = requests.get(
-                'https://api.spotify.com/v1/search',
-                headers={'Authorization': f'Bearer {token}'},
-                params=params,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                episodes = data.get('episodes', {}).get('items', [])
-                
-                if episodes:
-                    # Try to find the best match
-                    episode_title_lower = episode_title.lower()
-                    
-                    # First, try to find an exact or close title match
-                    for ep in episodes:
-                        ep_name = ep.get('name', '').lower()
-                        # Check if titles are similar (one contains most of the other)
-                        if episode_title_lower[:30] in ep_name or ep_name[:30] in episode_title_lower:
-                            # Get episode-specific image (Spotify provides episode artwork)
-                            episode_images = ep.get('images', [])
-                            episode_image = episode_images[0]['url'] if episode_images else None
-                            return {
-                                'episode_id': ep.get('id'),
-                                'episode_url': ep.get('external_urls', {}).get('spotify'),
-                                'name': ep.get('name'),
-                                'show_name': ep.get('show', {}).get('name', ''),
-                                'episode_image': episode_image,
-                            }
+    # ── Episode lookup ──
+    # An episode is only ever taken from the right show's own episode list. Spotify's episode search does not say
+    # which show a result belongs to, and the old "first result" fallback handed one show's Spotify link and
+    # artwork to another show's episode (e.g. a Fitness Racing Podcast episode showed RMR Training's cover).
 
-                    # If no close match, return the first result
-                    ep = episodes[0]
-                    # Get episode-specific image
-                    episode_images = ep.get('images', [])
-                    episode_image = episode_images[0]['url'] if episode_images else None
-                    return {
-                        'episode_id': ep.get('id'),
-                        'episode_url': ep.get('external_urls', {}).get('spotify'),
-                        'name': ep.get('name'),
-                        'show_name': ep.get('show', {}).get('name', ''),
-                        'episode_image': episode_image,
-                    }
-            elif response.status_code == 401:
-                # Token expired or invalid, clear and retry once
+    @staticmethod
+    def _norm(text):
+        """Lowercase letters and digits only, for comparing titles and names."""
+        return re.sub(r'[^a-z0-9]+', ' ', html_unescape(text or '').lower()).strip()
+
+    def _same_show(self, a, b):
+        """True if two podcast names are the same show (ignores "the" and "podcast"; one may contain the other)."""
+        words = lambda s: re.sub(r'\b(the|podcast)\b', ' ', self._norm(s)).split()
+        a_words, b_words = ' '.join(words(a)), ' '.join(words(b))
+        return bool(a_words and b_words) and (a_words in b_words or b_words in a_words)
+
+    def _api_get(self, path, params=None):
+        """GET from the Spotify API, retrying once with a fresh token. Returns the JSON or None."""
+        for attempt in range(2):
+            token = self.get_access_token()
+            if not token:
+                return None
+            try:
+                response = requests.get(f'https://api.spotify.com/v1/{path}',
+                                        headers={'Authorization': f'Bearer {token}'}, params=params, timeout=10)
+            except Exception as e:
+                print(f"   ⚠️ Spotify request error: {e}")
+                return None
+            if response.status_code == 401 and attempt == 0:
                 self.access_token = None
                 self.token_expires = None
-                return self.search_episode(episode_title, show_name)
-            
+                continue
+            return response.json() if response.status_code == 200 else None
+        return None
+
+    def _show_for(self, show_name):
+        """The Spotify show matching a podcast name (cached), or None if Spotify has no show with that name."""
+        if show_name not in self._show_cache:
+            self._show_cache[show_name] = self.search_show(show_name)
+        return self._show_cache[show_name]
+
+    def _show_episodes(self, show_id, oldest):
+        """A show's episodes, newest first, loaded 50 at a time until one is older than `oldest` (YYYY-MM-DD)."""
+        cache = self._episode_cache.setdefault(show_id, {'items': [], 'done': False})
+        while not cache['done'] and (not cache['items'] or cache['items'][-1]['release_date'] >= oldest):
+            page = self._api_get(f'shows/{show_id}/episodes', {'limit': 50, 'offset': len(cache['items'])})
+            items = [i for i in (page or {}).get('items', []) if i]
+            cache['items'] += items
+            if not items or len(cache['items']) >= page.get('total', 0) or len(cache['items']) >= 400:
+                cache['done'] = True
+        return cache['items']
+
+    def search_episode(self, episode_title, show_name=None, published_date=None):
+        """Find an episode of `show_name` on Spotify and return its direct URL and artwork.
+
+        Matches by title within the show's own episode list. When Spotify has retitled the episode, falls back to the
+        only episode the show released on that date (`published_date`, YYYY-MM-DD). Returns None when it cannot match
+        with confidence, so the caller uses the show page and the podcast's own artwork instead of a wrong episode.
+
+        Returns a dict with 'episode_url', 'episode_id', 'name', 'show_name' and 'episode_image', or None.
+        """
+        if not show_name:
             return None
-        except Exception as e:
-            print(f"   ⚠️ Spotify episode search error: {e}")
+        show = self._show_for(show_name)
+        if not show:
             return None
+
+        try:
+            target = datetime.strptime(published_date[:10], '%Y-%m-%d').date() if published_date else None
+        except ValueError:
+            target = None
+        oldest = (target - timedelta(days=3)).isoformat() if target else '0000-00-00'
+        episodes = self._show_episodes(show['spotify_id'], oldest)
+
+        def days_off(ep):
+            try:
+                return abs((datetime.strptime(ep['release_date'][:10], '%Y-%m-%d').date() - target).days)
+            except (ValueError, KeyError):
+                return 99
+
+        window = [e for e in episodes if days_off(e) <= 3] if target else episodes
+        wanted = self._norm(episode_title)
+        match, best = None, 0.0
+        for ep in window:
+            candidate = self._norm(ep.get('name', ''))
+            ratio = difflib.SequenceMatcher(None, wanted, candidate).ratio()
+            if ratio > best and (ratio >= 0.75 or wanted[:30] in candidate or candidate[:30] in wanted):
+                match, best = ep, ratio
+        if not match and target:
+            same_day = [e for e in episodes if days_off(e) <= 1]
+            if len(same_day) == 1:
+                match = same_day[0]
+        if not match:
+            return None
+
+        images = match.get('images') or []
+        return {
+            'episode_id': match.get('id'),
+            'episode_url': match.get('external_urls', {}).get('spotify'),
+            'name': match.get('name'),
+            'show_name': show.get('name', ''),
+            'episode_image': images[0]['url'] if images else None,
+        }
 
 
 class PodcastDiscovery:
@@ -1084,7 +1085,7 @@ def main():
         spotify_url = None
         episode_specific_image = None
         if spotify.enabled:
-            episode_info = spotify.search_episode(title, podcast_title)
+            episode_info = spotify.search_episode(title, podcast_title, (ep.get('datePublished') or '')[:10])
             if episode_info:
                 if episode_info.get('episode_url'):
                     spotify_url = episode_info['episode_url']
