@@ -247,7 +247,6 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
     <a href="/" class="nav-brand">HYROX WEEKLY</a>
     <div class="nav-links">
       <a href="/archive" class="active">All Issues</a>
-      <a href="/#premium" class="premium">Premium</a>
       <a href="/#subscribe" class="nav-cta">Subscribe</a>
     </div>
   </div>
@@ -266,6 +265,21 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
   <section class="archive-year">
     <h2 class="archive-year-title">2026</h2>
     <div class="archive-list">
+      <!-- Edition 38 - Aug 31 - Sep 06-->
+      <a href="/archive/edition-38-2026-08-31.html" class="archive-item">
+        <div class="archive-item-content">
+          <div class="archive-item-edition">Edition #38</div>
+          <h3 class="archive-item-title">August 31 - September 06, 2026</h3>
+          <div class="archive-item-meta">
+            <span>📹 10 videos</span>
+            <span>🎙️ 11 podcasts</span>
+            <span>📝 3 articles</span>
+            <span>💬 9 discussions</span>
+          </div>
+        </div>
+        <span class="archive-item-arrow">→</span>
+      </a>
+
       <!-- Edition 37 - Aug 24 - Aug 30-->
       <a href="/archive/edition-37-2026-08-24.html" class="archive-item">
         <div class="archive-item-content">
@@ -832,32 +846,6 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
   <p style="margin-top: 16px;">© 2025 Hyrox Weekly. Not affiliated with, endorsed by, or sponsored by HYROX World GmbH or Upsolut Sports GmbH.</p>
 </footer>
 
-<script>
-(async function() {
-  var config;
-  try {
-    var res = await fetch('/assets/edition-config.json');
-    config = await res.json();
-  } catch(e) { return; }
-
-  var latest = config.latestEdition || 0;
-  var freeCount = 3;
-  var items = document.querySelectorAll('.archive-item');
-
-  items.forEach(function(item) {
-    var match = item.getAttribute('href').match(/edition-(\d+)/);
-    if (!match) return;
-    var num = parseInt(match[1], 10);
-    if (num <= latest - freeCount) {
-      var badge = document.createElement('span');
-      badge.className = 'archive-item-badge';
-      badge.textContent = 'Premium';
-      item.querySelector('.archive-item-edition').appendChild(badge);
-    }
-  });
-})();
-</script>
-<script src="/assets/archive-badges.js" defer></script>
 
 </body>
 </html>

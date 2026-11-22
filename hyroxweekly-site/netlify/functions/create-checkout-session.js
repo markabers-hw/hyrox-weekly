@@ -6,10 +6,22 @@
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
+// Premium sign-ups are paused (2026-11-22) while the focus is on growing the free newsletter.
+// Set to false and redeploy to accept new subscriptions again. Existing members are unaffected.
+const SIGNUPS_PAUSED = true;
+
 exports.handler = async (event) => {
   // Only allow POST
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
+  }
+
+  if (SIGNUPS_PAUSED) {
+    return {
+      statusCode: 403,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Premium sign-ups are paused. The newsletter and archive are free.' })
+    };
   }
 
   try {

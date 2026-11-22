@@ -4,15 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Premium - Hyrox Weekly</title>
-<meta name="description" content="Hyrox Weekly Premium - Early access, athlete deep dives, and performance guides.">
+<meta name="description" content="Hyrox Weekly Premium is paused. Every edition and the full archive are free to read.">
 
 <!-- Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-<!-- Stripe -->
-<script src="https://js.stripe.com/v3/"></script>
 
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -368,7 +365,6 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
     <a href="/" class="nav-brand">HYROX WEEKLY</a>
     <div class="nav-links">
       <a href="/archive">Archive</a>
-      <a href="/premium" class="active">Premium</a>
       <a href="/#subscribe">Subscribe</a>
     </div>
   </div>
@@ -376,59 +372,20 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
 
 <!-- Hero -->
 <section class="premium-hero">
-  <!-- Early Bird Banner (dynamic) -->
-  <div class="early-bird-banner" id="earlyBirdBanner">
-    <span>EARLY BIRD PRICING</span>
-    <span class="early-bird-count" id="earlyBirdCount">100 spots left</span>
+  <div class="early-bird-banner sold-out">
+    <span>PREMIUM IS ON PAUSE</span>
   </div>
 
   <h1>HYROX WEEKLY<br><span>PREMIUM</span></h1>
 
-  <p>Get early access to each edition, exclusive athlete profiles, and in-depth performance guides for every station.</p>
+  <p>We've paused new Premium sign-ups to focus on the free weekly newsletter. Every edition and the full archive are free to read.</p>
 
-  <!-- Pricing Cards -->
-  <div class="pricing-container">
-    <div class="pricing-card" id="monthlyCard" onclick="selectPlan('monthly')">
-      <div class="pricing-label">Monthly</div>
-      <div class="pricing-price" id="monthlyPrice">$4<span>/mo</span></div>
-      <div class="pricing-original" id="monthlyOriginal">$5/mo after early bird</div>
-    </div>
-
-    <div class="pricing-card recommended selected" id="yearlyCard" onclick="selectPlan('yearly')">
-      <div class="pricing-label">Yearly</div>
-      <div class="pricing-price" id="yearlyPrice">$30<span>/yr</span></div>
-      <div class="pricing-original" id="yearlyOriginal">$39/yr after early bird</div>
-      <div class="pricing-savings">Save 35%</div>
-    </div>
-  </div>
-
-  <!-- Features -->
-  <div class="features-list">
-    <h3>What's Included</h3>
-    <div class="feature-item"><span class="check">&#10003;</span> Full newsletter archive</div>
-    <div class="feature-item"><span class="check">&#10003;</span> Athlete Editions - in-depth profiles of top competitors <span style="background:rgba(204,85,0,0.2);color:#CC5500;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;margin-left:6px;">COMING SOON</span></div>
-    <div class="feature-item"><span class="check">&#10003;</span> Performance Editions - deep dives on every station <span style="background:rgba(204,85,0,0.2);color:#CC5500;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;margin-left:6px;">COMING SOON</span></div>
-    <div class="feature-item"><span class="check">&#10003;</span> Cancel anytime</div>
-  </div>
-
-  <!-- Checkout Form -->
   <div class="checkout-container">
-    <h3>Start Your Subscription</h3>
+    <h3>Get the free newsletter</h3>
 
     <div class="error-message" id="errorMessage"></div>
 
-    <form id="checkoutForm">
-      <div class="form-group">
-        <label for="email">Email address</label>
-        <input type="email" id="email" name="email" placeholder="you@example.com" required>
-      </div>
-
-      <button type="submit" class="checkout-btn" id="checkoutBtn">
-        Subscribe Now
-      </button>
-    </form>
-
-    <p class="checkout-note">Secure payment via Stripe. Cancel anytime.</p>
+    <a href="/#subscribe" class="checkout-btn" style="display:block;text-align:center;text-decoration:none;">Subscribe free</a>
 
     <!-- Already a member -->
     <div class="member-login">
@@ -457,109 +414,10 @@ body { font-family: 'Barlow', sans-serif; line-height: 1.6; color: #1a1a1a; back
 </footer>
 
 <script>
-// State
-let selectedPlan = 'yearly';
-let pricing = null;
-
-// Initialize Stripe
-const stripe = Stripe('pk_live_51Snugv06aupYVj70KxrjAs6eu9zUOyqap353d7dKlfRcfvxArxRGVoe7ScIN0rfojT9Hgj6ezv9zqtnUl6YAw4up00WZZVJelR');
-
-// Load pricing on page load
-async function loadPricing() {
-  try {
-    const response = await fetch('/api/get-pricing');
-    pricing = await response.json();
-    updatePricingDisplay();
-  } catch (error) {
-    console.error('Failed to load pricing:', error);
-    // Use default early bird pricing
-    pricing = {
-      isEarlyBirdAvailable: true,
-      earlyBirdRemaining: 100,
-      prices: {
-        monthly: { current: 400, regular: 500 },
-        yearly: { current: 3000, regular: 3900 }
-      }
-    };
-    updatePricingDisplay();
-  }
-}
-
-function updatePricingDisplay() {
-  const banner = document.getElementById('earlyBirdBanner');
-  const countEl = document.getElementById('earlyBirdCount');
-
-  if (pricing.isEarlyBirdAvailable) {
-    countEl.textContent = `${pricing.earlyBirdRemaining} spots left`;
-
-    // Update prices
-    document.getElementById('monthlyPrice').innerHTML = `$${pricing.prices.monthly.current / 100}<span>/mo</span>`;
-    document.getElementById('yearlyPrice').innerHTML = `$${pricing.prices.yearly.current / 100}<span>/yr</span>`;
-    document.getElementById('monthlyOriginal').textContent = `$${pricing.prices.monthly.regular / 100}/mo after early bird`;
-    document.getElementById('yearlyOriginal').textContent = `$${pricing.prices.yearly.regular / 100}/yr after early bird`;
-  } else {
-    banner.classList.add('sold-out');
-    banner.innerHTML = '<span>EARLY BIRD SOLD OUT</span>';
-
-    // Show regular prices
-    document.getElementById('monthlyPrice').innerHTML = `$${pricing.prices.monthly.regular / 100}<span>/mo</span>`;
-    document.getElementById('yearlyPrice').innerHTML = `$${pricing.prices.yearly.regular / 100}<span>/yr</span>`;
-    document.getElementById('monthlyOriginal').textContent = '';
-    document.getElementById('yearlyOriginal').textContent = '';
-  }
-}
-
-function selectPlan(plan) {
-  selectedPlan = plan;
-
-  document.getElementById('monthlyCard').classList.toggle('selected', plan === 'monthly');
-  document.getElementById('yearlyCard').classList.toggle('selected', plan === 'yearly');
-}
-
 function toggleLoginForm(e) {
   e.preventDefault();
   document.getElementById('loginForm').classList.toggle('show');
 }
-
-// Checkout form submission
-document.getElementById('checkoutForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-
-  const email = document.getElementById('email').value;
-  const btn = document.getElementById('checkoutBtn');
-  const errorEl = document.getElementById('errorMessage');
-
-  btn.disabled = true;
-  btn.textContent = 'Loading...';
-  errorEl.style.display = 'none';
-
-  try {
-    const priceId = selectedPlan === 'yearly'
-      ? pricing.prices.yearly.priceId
-      : pricing.prices.monthly.priceId;
-
-    const response = await fetch('/api/create-checkout-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, priceId })
-    });
-
-    const data = await response.json();
-
-    if (data.error) {
-      throw new Error(data.error);
-    }
-
-    // Redirect to Stripe Checkout
-    window.location.href = data.url;
-
-  } catch (error) {
-    errorEl.textContent = error.message || 'Something went wrong. Please try again.';
-    errorEl.style.display = 'block';
-    btn.disabled = false;
-    btn.textContent = 'Subscribe Now';
-  }
-});
 
 // Magic link form submission
 document.getElementById('magicLinkForm').addEventListener('submit', async (e) => {
@@ -600,8 +458,6 @@ if (errorParam) {
   errorEl.style.display = 'block';
 }
 
-// Load pricing on page load
-loadPricing();
 </script>
 
 </body>
