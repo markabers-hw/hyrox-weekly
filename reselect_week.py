@@ -2,7 +2,7 @@
 """
 Re-run auto-selection for editions that are not published yet, using the current rules in selection.py.
 
-For each edition and platform (YouTube, podcasts, articles; Reddit's rules did not change):
+For each edition and platform (YouTube, podcasts, articles and Reddit):
   - items you picked by hand (selection_method other than 'yolo') are left alone and count toward the quota
   - items you rejected by hand are never brought back
   - auto-picks that no longer make the cut go back to 'discovered'
@@ -23,10 +23,10 @@ import os
 from datetime import date, datetime, timedelta, timezone
 
 import batch_yolo as by
-from selection import SELECT_FIELDS, choose_items
+from selection import SELECT_FIELDS, choose_items, eligible_items
 
 FIRST_EDITION_MONDAY = date(2025, 12, 15)
-PLATFORMS = ('youtube', 'podcast', 'article')
+PLATFORMS = ('youtube', 'podcast', 'article', 'reddit')
 SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reselect_snapshots')
 SAVED_FIELDS = ('status', 'display_order', 'selection_method')
 
@@ -69,6 +69,8 @@ def plan_platform(platform: str, pool: list[dict], priority_names: set[str]) -> 
         'wanted': wanted,
         'locked': len(locked),
         'kept': sum(1 for i in chosen if i['id'] in current_auto),
+        'eligible': len(eligible_items(candidates, platform, config)),
+        'quota': config[f'yolo_max_{platform}'],
     }
 
 
@@ -133,7 +135,8 @@ def main() -> int:
             snapshot += [{'id': i['id'], **{k: i.get(k) for k in SAVED_FIELDS}} for i in pool]
             print(f"Edition {number} {platform:8}: {len(pool):>3} candidates | keep {plan['kept']:>2}, "
                   f"add {len(plan['add']):>2}, remove {len(plan['remove']):>2}, renumber {len(plan['renumber']):>2}"
-                  + (f" | {plan['locked']} hand-picked left alone" if plan['locked'] else ''))
+                  + (f" | {plan['locked']} hand-picked left alone" if plan['locked'] else '')
+                  + (f" | SHORT: only {plan['eligible']} eligible for {plan['quota']}" if plan['eligible'] < plan['quota'] else ''))
 
     totals = {k: sum(len(p[4][k]) for p in plans) for k in ('add', 'remove', 'renumber')}
     print(f"\nTotal: add {totals['add']}, remove {totals['remove']}, renumber {totals['renumber']}")

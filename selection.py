@@ -89,22 +89,25 @@ def rank_candidates(items: list[dict], platform: str, priority_names: set[str]) 
                                         -engagement(i, platform)))
 
 
+def eligible_items(items: list[dict], platform: str, config: dict) -> list[dict]:
+    """The items allowed to be selected at all: Reddit must clear the comment/upvote bar, others must be about Hyrox."""
+    if platform == 'reddit':
+        min_comments = int(config.get('yolo_reddit_min_comments', 20))
+        min_upvotes = int(config.get('yolo_reddit_min_upvotes', 20))
+        return [i for i in items if (i.get('comment_count') or 0) >= min_comments
+                or (i.get('view_count') or 0) >= min_upvotes]
+    return [i for i in items if relevance_tier(i) > 0 and is_latin_title(i)]
+
+
 def choose_items(items: list[dict], platform: str, config: dict, priority_names: set[str]) -> list[dict]:
     """The items to auto-select for one platform, best first.
 
     `config` holds the yolo_* settings (limits, Reddit bar, per-creator cap) as ints or numeric strings.
     """
     limit = int(config.get(f'yolo_max_{platform}', 8))
-
+    ranked = rank_candidates(eligible_items(items, platform, config), platform, priority_names)
     if platform == 'reddit':
-        min_comments = int(config.get('yolo_reddit_min_comments', 20))
-        min_upvotes = int(config.get('yolo_reddit_min_upvotes', 20))
-        eligible = [i for i in items if (i.get('comment_count') or 0) >= min_comments
-                    or (i.get('view_count') or 0) >= min_upvotes]
-        return rank_candidates(eligible, platform, priority_names)[:limit]
-
-    eligible = [i for i in items if relevance_tier(i) > 0 and is_latin_title(i)]
-    ranked = rank_candidates(eligible, platform, priority_names)
+        return ranked[:limit]
 
     # Soft per-creator cap: skipped items only fill slots the rest of the week couldn't
     cap = int(config.get('yolo_max_per_creator', DEFAULT_PER_CREATOR))
