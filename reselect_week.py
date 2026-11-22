@@ -15,6 +15,7 @@ Every run first saves the affected rows to reselect_snapshots/; --restore puts t
 Usage:
     python reselect_week.py --from-edition 32 --to-edition 48 --dry-run    # show what would change
     python reselect_week.py --from-edition 32 --to-edition 48              # apply
+    python reselect_week.py --from-edition 37 --to-edition 48 --add-only   # raised limits: add pieces, change nothing else
     python reselect_week.py --restore reselect_snapshots/<file>.json       # undo a run
 """
 import argparse
@@ -23,7 +24,7 @@ import os
 from datetime import date, datetime, timedelta, timezone
 
 import batch_yolo as by
-from selection import SELECT_FIELDS, choose_items, eligible_items
+from selection import SELECT_FIELDS, choose_additions, choose_items, eligible_items
 
 FIRST_EDITION_MONDAY = date(2025, 12, 15)
 PLATFORMS = ('youtube', 'podcast', 'article', 'reddit')
@@ -74,6 +75,23 @@ def plan_platform(platform: str, pool: list[dict], priority_names: set[str]) -> 
     }
 
 
+def plan_additions(platform: str, pool: list[dict], priority_names: set[str]) -> dict:
+    """Add-only plan: keep everything selected exactly as it is and append new picks up to the quota. Pure: no writes."""
+    selected = [i for i in pool if i['status'] == 'selected']
+    candidates = [i for i in pool if i['status'] != 'selected']
+    config = dict(by.YOLO_CONFIG)
+    chosen = choose_additions(selected, candidates, platform, config, priority_names)
+    base = max((i.get('display_order') or 0 for i in selected), default=0)  # new picks go after the existing ones
+    return {
+        'remove': [], 'renumber': [], 'add': chosen,
+        'wanted': {i['id']: base + (rank + 1) * 10 for rank, i in enumerate(chosen)},
+        'locked': sum(1 for i in selected if i.get('selection_method') != 'yolo'),
+        'kept': len(selected),
+        'eligible': len(selected) + len(eligible_items(candidates, platform, config)),
+        'quota': int(config[f'yolo_max_{platform}']),
+    }
+
+
 def patch_item(item_id: int, fields: dict) -> None:
     fields = {**fields, 'updated_at': datetime.now(timezone.utc).isoformat()}
     if not by.supabase_patch('content_items', f'id=eq.{item_id}', fields):
@@ -111,6 +129,8 @@ def main() -> int:
     parser.add_argument('--to-edition', type=int)
     parser.add_argument('--dry-run', action='store_true', help='Show what would change without writing anything')
     parser.add_argument('--no-blurbs', action='store_true', help='Skip writing blurbs for new picks')
+    parser.add_argument('--add-only', action='store_true',
+                        help='Only append new picks up to the quota; never remove, reorder or renumber what is selected')
     parser.add_argument('--restore', metavar='SNAPSHOT', help='Undo a previous run from its snapshot file')
     args = parser.parse_args()
 
@@ -130,7 +150,7 @@ def main() -> int:
             continue
         for platform in PLATFORMS:
             pool = fetch_pool(platform, start, end)
-            plan = plan_platform(platform, pool, priority_names)
+            plan = (plan_additions if args.add_only else plan_platform)(platform, pool, priority_names)
             plans.append((number, platform, start, end, plan))
             snapshot += [{'id': i['id'], **{k: i.get(k) for k in SAVED_FIELDS}} for i in pool]
             print(f"Edition {number} {platform:8}: {len(pool):>3} candidates | keep {plan['kept']:>2}, "

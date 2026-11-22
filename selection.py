@@ -99,6 +99,28 @@ def eligible_items(items: list[dict], platform: str, config: dict) -> list[dict]
     return [i for i in items if relevance_tier(i) > 0 and is_latin_title(i)]
 
 
+def _creator_key(item: dict) -> str:
+    return (_creator(item).get('name') or f"item-{item['id']}").lower()
+
+
+def _apply_creator_cap(ranked: list[dict], limit: int, cap: int, already: Counter) -> list[dict]:
+    """Take up to `limit` items in rank order, at most `cap` per creator (counting `already`).
+
+    Soft cap: items skipped for it only fill slots the rest of the week couldn't.
+    """
+    chosen, held_back, per_creator = [], [], Counter(already)
+    for item in ranked:
+        if len(chosen) == limit:
+            break
+        key = _creator_key(item)
+        if cap and per_creator[key] >= cap:
+            held_back.append(item)
+            continue
+        per_creator[key] += 1
+        chosen.append(item)
+    return chosen + held_back[:limit - len(chosen)]
+
+
 def choose_items(items: list[dict], platform: str, config: dict, priority_names: set[str]) -> list[dict]:
     """The items to auto-select for one platform, best first.
 
@@ -108,17 +130,21 @@ def choose_items(items: list[dict], platform: str, config: dict, priority_names:
     ranked = rank_candidates(eligible_items(items, platform, config), platform, priority_names)
     if platform == 'reddit':
         return ranked[:limit]
+    return _apply_creator_cap(ranked, limit, int(config.get('yolo_max_per_creator', DEFAULT_PER_CREATOR)), Counter())
 
-    # Soft per-creator cap: skipped items only fill slots the rest of the week couldn't
-    cap = int(config.get('yolo_max_per_creator', DEFAULT_PER_CREATOR))
-    chosen, held_back, per_creator = [], [], Counter()
-    for item in ranked:
-        if len(chosen) == limit:
-            break
-        creator_key = (_creator(item).get('name') or f"item-{item['id']}").lower()
-        if cap and per_creator[creator_key] >= cap:
-            held_back.append(item)
-            continue
-        per_creator[creator_key] += 1
-        chosen.append(item)
-    return chosen + held_back[:limit - len(chosen)]
+
+def choose_additions(selected: list[dict], candidates: list[dict], platform: str, config: dict,
+                     priority_names: set[str]) -> list[dict]:
+    """Items to add to a platform's current selection to reach its quota, without changing what is selected.
+
+    Used when the limits are raised for editions that are already being curated: nothing already selected is
+    removed or reordered, and the per-creator cap counts the creators already selected.
+    """
+    need = int(config.get(f'yolo_max_{platform}', 8)) - len(selected)
+    if need <= 0:
+        return []
+    ranked = rank_candidates(eligible_items(candidates, platform, config), platform, priority_names)
+    if platform == 'reddit':
+        return ranked[:need]
+    return _apply_creator_cap(ranked, need, int(config.get('yolo_max_per_creator', DEFAULT_PER_CREATOR)),
+                              Counter(_creator_key(i) for i in selected))
