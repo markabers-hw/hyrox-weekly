@@ -4082,20 +4082,31 @@ def render_item_tools(item):
 
     # Move to different week
     with st.expander("📅 Move to Week", expanded=False):
-        move_weeks = generate_week_options(num_weeks=12)
-        # Exclude the "All Time" entry
-        move_weeks = [w for w in move_weeks if w['start'] is not None]
+        # Every week back to Edition #1 (not just the last few, which hid the weeks next to older editions),
+        # without the "All Time" entry
+        move_weeks = [w for w in generate_week_options() if w['start'] is not None]
         move_labels = [w['label'] for w in move_weeks]
+
+        # Start on the item's own week, so a stray click on Move can't send it somewhere else
+        item_week_idx = None
+        try:
+            published = date.fromisoformat(str(item.get('published_date'))[:10])
+            item_monday = published - timedelta(days=published.weekday())
+            item_week_idx = next(i for i, w in enumerate(move_weeks) if w['start'] == item_monday)
+        except (ValueError, StopIteration):
+            pass
 
         move_selection = st.selectbox(
             "Move to",
             options=range(len(move_weeks)),
-            format_func=lambda i: move_labels[i],
+            index=item_week_idx or 0,
+            format_func=lambda i: move_labels[i] + (" (this item is here)" if i == item_week_idx else ""),
             key=f"move_week_{item['id']}",
             label_visibility="collapsed"
         )
 
-        if st.button("📅 Move", key=f"move_btn_{item['id']}", use_container_width=True):
+        if st.button("📅 Move", key=f"move_btn_{item['id']}", use_container_width=True,
+                     disabled=move_selection == item_week_idx):
             target_week = move_weeks[move_selection]
             # Set published_date to the Monday of the target week
             update_content_published_date(item['id'], target_week['start'])
