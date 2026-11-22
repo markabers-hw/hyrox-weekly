@@ -120,6 +120,18 @@ Each script fetches content and stores it in PostgreSQL with engagement metrics.
 - `/archive/` contains past editions
 - `/premium/` has premium tier landing page (in development)
 
+### Deploying the Website
+The live site can be published two ways, and whichever deploy runs last is what is live:
+- **Netlify CLI** from the `hyroxweekly-site/` folder (how editions are normally published). Live content can be ahead of git.
+- **Git build of `main`**: Netlify builds every push to `main` (base dir `hyroxweekly-site`), and a successful build replaces the live site. These builds failed from 2026-08-24 to 2026-11-22 (see the dependency rule below) and now work.
+
+Rules:
+- **Commit every file that is live before pushing to `main`** (new editions, edited pages). Otherwise the git build rolls production back to whatever git has.
+- **A function's npm dependencies must be listed in `hyroxweekly-site/package.json` (and its lockfile)**, not only in `netlify/functions/package.json`. Netlify does not install the functions folder's `package.json`, so git builds fail with `Could not resolve "<package>"`, while CLI deploys keep working (they bundle your local `node_modules`) and hide the problem. `stripe` (14.25.0) and `jsonwebtoken` (9.0.3) are pinned exactly to the versions the CLI deploys bundle, because that is the payment code path. Update the lockfile with `npm install --package-lock-only`, not a plain `npm install`.
+- **Test a git build without pushing:** copy the tracked files to a temp folder, run `npm ci`, then `netlify functions:build --src netlify/functions --functions <output dir>`. It fails the same way production did if a dependency is missing.
+- **Rollback:** list deploy ids with `netlify api listSiteDeploys --data '{"site_id":"f52cff2e-001c-4a2a-9014-b9555b5312a2"}'`, then `netlify api restoreSiteDeploy --data '{"site_id":"f52cff2e-001c-4a2a-9014-b9555b5312a2","deploy_id":"<id>"}'`. Old deploys stay reachable at `https://<deploy_id>--relaxed-figolla-3437df.netlify.app`, which is handy for comparing before and after.
+- **Failed build logs** are only readable in the Netlify UI (Deploys > the failed deploy); the API and CLI return a single error line.
+
 ### Website Traffic Tracking (first-party, in Supabase)
 Netlify only shows 7 days of analytics, so page views are collected into Supabase and viewed in the dashboard (Analytics page > Website Traffic).
 - `hyroxweekly-site/hw.js` - tiny cookieless beacon; posts path, referrer and query string to `/api/track`. Honors Do Not Track.
@@ -184,10 +196,15 @@ Time decay: `1 / (1 + days_old × 0.1)`
 - ✅ Engine takes <1 hour per weekly edition
 - ✅ 3 editions published (Dec 15, Dec 22, Dec 29)
 - ✅ Premium landing page exists (`/premium/index.html`)
-- 🚧 Premium tier functionality (in development)
+- ⏸ Premium tier paused (2026-11-22): focus is growing the free newsletter
 - 🚧 Instagram/Reddit marketing (early stage)
 
-## Premium Tier (In Development)
+## Premium Tier (PAUSED 2026-11-22)
+
+Paused to focus on growth: 19 active free subscribers and 1 premium subscriber at the time, so no paid model could earn anything yet. Everything is free (the paywall script `assets/premium-gate.js` was already disabled).
+- Pause = `SIGNUPS_PAUSED = true` in `netlify/functions/create-checkout-session.js` plus a paused notice on `/premium` (members can still log in). No Premium link in the nav, footer or archive.
+- Plan to revisit monetization: affiliate links around 500 subscribers, paid sponsorship slots around 1,000-2,000 (`ad_placements` table exists), premium only if readers ask for specific paid content.
+- The sections below describe the original plan, kept for when it's revisited.
 
 **Key Value Proposition:** Early access to curated content
 
