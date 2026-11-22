@@ -23,6 +23,7 @@ import pytz
 from urllib.parse import quote
 from description_text import clean_description, shorten_description
 from selection import SELECT_FIELDS, choose_items
+from site_traffic import render_site_traffic
 
 DESCRIPTION_LIMIT = 250  # max characters of a description shown in the newsletter
 
@@ -136,6 +137,20 @@ def supabase_upsert(table, data, on_conflict=None):
         return None
     except Exception as e:
         print(f"Supabase UPSERT error: {e}")
+        return None
+
+def supabase_rpc(function_name, args=None):
+    """Call a Postgres function through the Supabase REST API. Returns the result, or None on failure."""
+    headers = get_supabase_headers()
+    url = f"{SUPABASE_URL}/rest/v1/rpc/{function_name}"
+    try:
+        response = get_http_session().post(url, headers=headers, json=args or {}, timeout=HTTP_TIMEOUT)
+        if response.status_code == 200:
+            return response.json()
+        print(f"Supabase RPC error: {function_name} {response.status_code} - {response.text}")
+        return None
+    except Exception as e:
+        print(f"Supabase RPC error: {e}")
         return None
 
 # Timezone options for settings
@@ -7572,9 +7587,15 @@ SUPABASE_SERVICE_KEY=your_service_key_here
                     st.write(ed.get('status', 'unknown'))
         else:
             st.info("No editions published yet.")
-        
+
         st.markdown("---")
-        
+
+        # Website traffic (first-party page views, see site_traffic.py)
+        st.markdown("### 🌐 Website Traffic")
+        render_site_traffic(supabase_rpc, editions, display_tz)
+
+        st.markdown("---")
+
         # Content Stats
         st.markdown("### 📈 Content Statistics")
         stats = get_stats()

@@ -120,6 +120,17 @@ Each script fetches content and stores it in PostgreSQL with engagement metrics.
 - `/archive/` contains past editions
 - `/premium/` has premium tier landing page (in development)
 
+### Website Traffic Tracking (first-party, in Supabase)
+Netlify only shows 7 days of analytics, so page views are collected into Supabase and viewed in the dashboard (Analytics page > Website Traffic).
+- `hyroxweekly-site/hw.js` - tiny cookieless beacon; posts path, referrer and query string to `/api/track`. Honors Do Not Track.
+- `hyroxweekly-site/netlify/functions/track.mjs` - validates (site origin only, no bots, no previews) and inserts into `page_views`. Stores no IPs; `visitor_hash` is a daily-rotating HMAC (key: `ANALYTICS_SALT`, falls back to `JWT_SECRET`).
+- `migrations/2026-11-22_page_views.sql` - `page_views` table (RLS on, service key only) plus `traffic_daily`, `traffic_breakdown`, `traffic_signups_daily` functions. Supabase caps responses at 1000 rows, so all aggregation happens in these functions.
+- `site_traffic.py` - the dashboard section, called from the Analytics page.
+- The script reaches every page through a Netlify snippet injection (Site settings > Snippet injection), not through the HTML files, so new pages and edition templates are covered automatically. Install or restore it with:
+  `netlify api createSiteSnippet --data '{"site_id":"f52cff2e-001c-4a2a-9014-b9555b5312a2","body":{"title":"Page views","general":"<script defer src=\"/hw.js\"></script>","general_position":"head"}}'`
+- Local testing: `cd hyroxweekly-site && ANALYTICS_SALT=anything netlify dev --geo=mock --country=AU`. `JWT_SECRET` is a Netlify secret so the CLI can't pull its value, and without a salt `visitor_hash` is NULL. Localhost is only accepted when `netlify dev` is running. Test rows go to the live table, so use paths under `/__test` and delete them afterwards.
+- Counts are JavaScript page loads, so they read lower than Netlify's server-side numbers. History starts from the day the snippet went live.
+
 ## Database Schema
 
 ### Core Tables
